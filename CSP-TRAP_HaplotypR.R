@@ -7,9 +7,20 @@ outputDir <- "/mnt/storage9/leen/MOI_ampliconseq/12_09_23_CSP-TRAP_0.005"
 if(!dir.exists(outputDir))
   dir.create(outputDir, recursive=T)
 
+#Set number of pools to analyse
+Poolnum <- 54
+
+# call haplotype options
+minCov <- 3
+detectionLimit <- 1/200
+minOccHap <- 2
+minCovSample <- 25
+
 # source edited funs
 source("/mnt/storage9/leen/MOI_ampliconseq/scripts/deplexBySample_ext.R")
 source("/mnt/storage9/leen/MOI_ampliconseq/scripts/checkBarcode_ext.R")
+source("/mnt/storage9/leen/MOI_ampliconseq/scripts/createHaplotypeTable_ext.R")
+
 
 ##############Run demultiplexing by sample 
 # Define a function to perform demultiplexing
@@ -35,7 +46,12 @@ demultiplex <- function(pattern, outputDir, sampleNum) {
   
   write.table(dePlexSample, file.path(outputDir, paste0("demultiplex", sampleNum, "SampleSummary.txt")), sep = "\t", row.names = FALSE)
   dePlexSample <- na.omit(dePlexSample)
+  # Save the dePlexSample dataframe to the R environment with a variable name based on sampleNum
+  assign(paste0("dePlexSample", sampleNum), dePlexSample, envir = .GlobalEnv)
+  # Save the primerFile to the R environment
+  assign("primerFile", primerFile, envir = .GlobalEnv)
 }
+
 
 # Set the folder path to fastq files
 folder_path <- "/mnt/storage9/leen/MOI_ampliconseq/fastq/"
@@ -51,31 +67,42 @@ extract_sample_name <- function(file_name) {
   return(sample_name)
 }
 
-# Define a function to generate and execute demultiplex lines
 generate_and_execute_demultiplex_lines <- function(file_list, outputDir) {
+  unique_names <- character(0)
+  
   # Iterate over the file list and generate demultiplex lines
   for (i in 1:length(file_list)) {
     file_name <- basename(file_list[i])
     sample_name <- extract_sample_name(file_name)
-    demultiplex_line <- paste0("demultiplex(\"", sample_name, "\", outputDir, ", i, ")")
+    unique_name <- sample_name
+    
+    # Check if the unique_name has already been encountered
+    if (unique_name %in% unique_names) {
+      # If it's a duplicate, skip generating the line
+      next  # Skip to the next iteration
+    }
+    
+    # Add the unique_name to the set of encountered names
+    unique_names <- union(unique_names, unique_name)
+    
+    demultiplex_line <- paste0("demultiplex(\"", unique_name, "\", outputDir, ", i, ")")
     cat(demultiplex_line, "\n")
     # Execute the generated line as R code
     eval(parse(text = demultiplex_line))
   }
 }
 
+
 # Call the function with your file_list and outputDir
 generate_and_execute_demultiplex_lines(file_list, outputDir)
 
 
-
-
-###################merge dataframes from the 40 pools with rbind
+###################merge dePlexSample dataframes from the 40 pools with rbind
 # Create an empty list to store the dataframes
 dePlexSampleList <- list()
 
 # Loop to load dataframes and add them to the list
-for (i in 1:40) {
+for (i in seq(1, Poolnum*2, by = 2)) {
   # Assuming your dataframes are named dePlexSample1, dePlexSample2, etc.
   df_name <- paste0("dePlexSample", i)
   
@@ -171,16 +198,9 @@ snpLst <- lapply(markerTab$MarkerID, function(marker){
 names(snpLst) <- markerTab$MarkerID
 
 ##################call haplotypes
-# call haplotype options
-minCov <- 3
-detectionLimit <- 1/200
-minOccHap <- 2
-minCovSample <- 25
 
 # remove samples without reads
 procReads <- procReads[procReads$numRead>0,]
-
-source("/mnt/storage9/leen/MOI_ampliconseq/scripts/createHaplotypeTable_ext.R")
 
 # call final haplotypes
 finalTab <- createFinalHaplotypTableExtended(
