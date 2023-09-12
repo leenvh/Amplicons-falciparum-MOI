@@ -1,3 +1,4 @@
+# Load libraries
 library("HaplotypR")
 library("ShortRead")
 
@@ -7,10 +8,14 @@ outputDir <- "/mnt/storage9/leen/MOI_ampliconseq/12_09_23_CSP-TRAP_0.005"
 if(!dir.exists(outputDir))
   dir.create(outputDir, recursive=T)
 
-#Set number of pools to analyse
+# Specify number of pools to analyse
 Poolnum <- 54
 
-# call haplotype options
+# Specify mismatch options
+minMMrate <- 0.5
+minOccGen <- 2
+
+# Specify haplotype options
 minCov <- 3
 detectionLimit <- 1/200
 minOccHap <- 2
@@ -92,12 +97,11 @@ generate_and_execute_demultiplex_lines <- function(file_list, outputDir) {
   }
 }
 
-
-# Call the function with your file_list and outputDir
+# Call the function with file_list and outputDir
 generate_and_execute_demultiplex_lines(file_list, outputDir)
 
 
-###################merge dePlexSample dataframes from the 40 pools with rbind
+###################merge dePlexSample dataframes
 # Create an empty list to store the dataframes
 dePlexSampleList <- list()
 
@@ -136,7 +140,7 @@ write.table(dePlexMarker, file.path(outputDir, "demultiplexMarkerSummary.txt"), 
 #remove lines without sampleID
 dePlexMarker <- na.omit(dePlexMarker)
 
-#############Second method work only for overlapping sequence read pair by merging the overlap of the forward and reverse read (using vsearch wrapper).
+#############Method for overlapping sequence read pair by merging the overlap of the forward and reverse read (using vsearch wrapper).
 # create output subdirectory
 outProcFiles <- file.path(outputDir, "processedReads")
 dir.create(outProcFiles)
@@ -154,12 +158,9 @@ write.table(procReads, file.path(outputDir, sprintf("processedReadSummary%s.txt"
 
 # subset: remove markers without reads
 procReads <- procReads[procReads$numRead>10,]
-#procReads <- procReads[procReads$MarkerID %in% c("csp","trap","ama1"),]
-###############Calculate mismatch rate and call SNPs
-# Options
-minMMrate <- 0.5
-minOccGen <- 2
 
+
+###############Calculate mismatch rate and call SNPs
 # process each marker
 snpLst <- lapply(markerTab$MarkerID, function(marker){
   # Calculate mismatch rate
@@ -198,7 +199,6 @@ snpLst <- lapply(markerTab$MarkerID, function(marker){
 names(snpLst) <- markerTab$MarkerID
 
 ##################call haplotypes
-
 # remove samples without reads
 procReads <- procReads[procReads$numRead>0,]
 
