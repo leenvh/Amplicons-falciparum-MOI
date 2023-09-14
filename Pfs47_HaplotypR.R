@@ -26,7 +26,6 @@ source("/mnt/storage9/leen/MOI_ampliconseq/scripts/deplexBySample_ext.R")
 source("/mnt/storage9/leen/MOI_ampliconseq/scripts/checkBarcode_ext.R")
 source("/mnt/storage9/leen/MOI_ampliconseq/scripts/createHaplotypeTable_ext.R")
 
-
 ##############Run demultiplexing by sample 
 # Define a function to perform demultiplexing
 demultiplex <- function(pattern, outputDir, sampleNum) {
