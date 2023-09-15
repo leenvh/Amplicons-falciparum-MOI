@@ -1,6 +1,7 @@
 library(dplyr)
 library(tidyr)
 library(stringr)
+library(ggplot2)
 
 #Set working directory and convert .txt files to .csv files
 setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis")
@@ -77,9 +78,13 @@ calculate_reads <- function(data) {
 # Function to split and process human haplotypes for further data analysis
 process_human <- function(data) {
   data_split <- data %>%
-    separate(SampleID, into = c("Individual", "Day"), sep = "_") %>%
-    mutate(Day = as.numeric(str_sub(Day, 4)),
-           Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)))
+    mutate(Individual = str_extract(SampleID, "^[^_]+"),
+           Day = str_extract(SampleID, "_([^_]+)$"),
+           Day = str_replace_all(Day, "_", ""), 
+           Day = as.numeric(str_sub(Day, 4)),
+           Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)),
+           Timepoint = SampleID) %>%
+    select(Individual, Day, Timepoint, everything(), -SampleID)
   
   return(data_split)
 }
@@ -91,10 +96,12 @@ process_mosquito <- function(data) {
            Day = str_extract(SampleID, "_([^_]*)_"),  # Capture value between underscores
            Mosquito = str_extract(SampleID, "_([^_]+)$"),
            Day = str_replace_all(Day, "_", ""), 
+           Timepoint = paste0(Individual,"_", Day),
            Mosquito = str_replace_all(Mosquito, "_", ""),
            Day = as.numeric(str_sub(Day, 4)),
            Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
-    select(Individual, Day, Mosquito, everything(), -SampleID)
+           
+    select(Individual, Day, Mosquito, Timepoint, everything(), -SampleID)
   
   return(data_split)
 }
@@ -102,30 +109,90 @@ process_mosquito <- function(data) {
 # Load and process the data
 TRAP_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/TRAP_finalTab.csv",header=TRUE,sep=',')
 CSP_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/CSP_finalTab.csv",header=TRUE,sep=',')
+Pfs47_1_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/pfs47_1_finalTab.csv",header=TRUE,sep=',')
+Pfs47_2_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/pfs47_2_finalTab.csv",header=TRUE,sep=',')
 
 TRAP_processed <- process_data(TRAP_raw, "trap")
 CSP_processed <- process_data(CSP_raw, "csp")
+Pfs47_1_processed <- process_data(Pfs47_1_raw, "pfs47_1")
+Pfs47_2_processed <- process_data(Pfs47_2_raw, "pfs47_2")
+
+# Calculate numbers of samples
+length(unique(TRAP_processed$SampleID))
+length(unique(CSP_processed$SampleID))
+length(unique(Pfs47_1_processed$SampleID))
+length(unique(Pfs47_2_processed$SampleID))
 
 # Process Matching Haplotypes
 Matching_Haplotypes_CSP <- process_haplotypes(CSP_processed)
 Matching_Haplotypes_TRAP <- process_haplotypes(TRAP_processed)
-
-# Filter data based on common SampleIDs
-common_samples <- intersect(Matching_Haplotypes_CSP$SampleID, Matching_Haplotypes_TRAP$SampleID)
-Matching_Haplotypes_CSP <- filter(Matching_Haplotypes_CSP, SampleID %in% common_samples)
-Matching_Haplotypes_TRAP <- filter(Matching_Haplotypes_TRAP, SampleID %in% common_samples)
+Matching_Haplotypes_Pfs47_1 <- process_haplotypes(Pfs47_1_processed)
+Matching_Haplotypes_Pfs47_2 <- process_haplotypes(Pfs47_2_processed)
 
 # Calculate total reads and percentages
 Matching_Haplotypes_CSP <- calculate_reads(Matching_Haplotypes_CSP)
 Matching_Haplotypes_TRAP <- calculate_reads(Matching_Haplotypes_TRAP)
+Matching_Haplotypes_Pfs47_1 <- calculate_reads(Matching_Haplotypes_Pfs47_1)
+Matching_Haplotypes_Pfs47_2 <- calculate_reads(Matching_Haplotypes_Pfs47_2)
 
 # Combine and format final haplotype data
-FinalHaplotypes <- cbind(Matching_Haplotypes_TRAP, Matching_Haplotypes_CSP[, 2:6])
+FinalHaplotypes <- merge(Matching_Haplotypes_TRAP, 
+                         Matching_Haplotypes_CSP, 
+                         by = "SampleID", 
+                         all = TRUE)
 colnames(FinalHaplotypes) <- c("SampleID", "TRAP_hap", "TRAP_reads", "TRAP_MOI", "TRAP_TotalReads", "TRAP_Perc", "CSP_hap", "CSP_reads", "CSP_MOI", "CSP_TotalReads", "CSP_Perc")
+
+Pfs47_FinalHaplotypes <- merge(Matching_Haplotypes_Pfs47_1, 
+                         Matching_Haplotypes_Pfs47_2, 
+                         by = "SampleID", 
+                         all = TRUE)
+colnames(Pfs47_FinalHaplotypes) <- c("SampleID", "Pfs47_1_hap", "Pfs47_1_reads", "Pfs47_1_MOI", "Pfs47_1_TotalReads", "Pfs47_1_Perc", "Pfs47_2_hap", "Pfs47_2_reads", "Pfs47_2_MOI", "Pfs47_2_TotalReads", "Pfs47_2_Perc")
 
 # Split by host type and process SampleID
 FinalHaplotypes_Human <- process_human(filter(FinalHaplotypes, !grepl("Mosq", SampleID)))
 FinalHaplotypes_Mosq <- process_mosquito(filter(FinalHaplotypes, grepl("Mosq", SampleID)))
+FINAL_CSP_TRAP<-bind_rows(FinalHaplotypes_Mosq,FinalHaplotypes_Human)
+Pfs47_FinalHaplotypes_Human <- process_human(filter(Pfs47_FinalHaplotypes, !grepl("Mosq", SampleID)))
+Pfs47_FinalHaplotypes_Mosq <- process_mosquito(filter(Pfs47_FinalHaplotypes, grepl("Mosq", SampleID)))
+
+
+# Calculate numbers
+# individuals
+length(unique(FinalHaplotypes_Human$Individual[!is.na(FinalHaplotypes_Human$CSP_hap)])) #49
+length(unique(FinalHaplotypes_Human$Individual[!is.na(FinalHaplotypes_Human$TRAP_hap)])) #49
+length(unique(Pfs47_FinalHaplotypes_Human$Individual[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)])) #33
+length(unique(Pfs47_FinalHaplotypes_Human$Individual[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)])) #38
+# individuals/timepoints
+length(na.omit(FinalHaplotypes_Human$CSP_MOI)) #165
+length(na.omit(FinalHaplotypes_Human$TRAP_MOI)) #164
+length(na.omit(Pfs47_FinalHaplotypes_Human$Pfs47_1_MOI)) #33
+length(na.omit(Pfs47_FinalHaplotypes_Human$Pfs47_2_MOI)) #38
+# mosquitoes
+length(na.omit(FinalHaplotypes_Mosq$CSP_MOI)) #142
+length(na.omit(FinalHaplotypes_Mosq$TRAP_MOI)) #129
+length(na.omit(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_MOI)) #23
+length(na.omit(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_MOI)) #32
+# individuals for which there are matching mosquitoes (any timepoint)
+length(unique(FinalHaplotypes_Mosq$Individual[!is.na(FinalHaplotypes_Mosq$CSP_hap)])) #36
+length(unique(FinalHaplotypes_Mosq$Individual[!is.na(FinalHaplotypes_Mosq$TRAP_hap)])) #35
+length(unique(Pfs47_FinalHaplotypes_Mosq$Individual[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)])) #15
+length(unique(Pfs47_FinalHaplotypes_Mosq$Individual[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)])) #21
+#	Matching timepoints individuals-mosquitoes
+length(unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$CSP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$CSP_hap)])))
+length(unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$TRAP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$TRAP_hap)])))
+length(unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)])))
+length(unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)])))
+#	vislualisation of matching timepoints individuals-mosquitoes
+matching_timepoints_CSP<-unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$CSP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$CSP_hap)]))
+Matching_Mosq_Haplotypes_CSP<- FinalHaplotypes_Mosq[FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_CSP,]
+
+ggplot(Matching_Mosq_Haplotypes_CSP, aes(x=factor(Day, levels=c(0, 2, 7, 14, 21, 28, 35)), fill=Day)) +
+  geom_bar() +
+  labs(x="Day", y="Number of Occurrences - matching human/mosq") +
+  theme_classic()
+
+
+
 
 
 
