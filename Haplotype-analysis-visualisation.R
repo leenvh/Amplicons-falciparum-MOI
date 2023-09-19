@@ -6,6 +6,7 @@ library(gridExtra)
 library(patchwork)
 library(ggpubr)
 library(viridis)
+library(ggpattern)
 
 #Set working directory and convert .txt files to .csv files
 setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis")
@@ -256,19 +257,19 @@ Matching_Haplotypes_Pfs47_2_Molten <- melt_data(Matching_Haplotypes_Pfs47_2)
 Matching_Haplotypes_Pfs47_2_Molten$Timepoint <- gsub("_Mosq\\d+", "", Matching_Haplotypes_Pfs47_2_Molten$SampleID)
 
 # Only keep rows of timepoints at which there are both human and mosquito samples
-Matching_Haplotypes_CSP_Molten <- Matching_Haplotypes_CSP_Molten %>%
+Matching_Haplotypes_CSP_Molten_matching <- Matching_Haplotypes_CSP_Molten %>%
   group_by(Timepoint) %>%
   filter("human" %in% species & "mosquito" %in% species) %>%
   ungroup()
-Matching_Haplotypes_TRAP_Molten <- Matching_Haplotypes_TRAP_Molten %>%
+Matching_Haplotypes_TRAP_Molten_matching <- Matching_Haplotypes_TRAP_Molten %>%
   group_by(Timepoint) %>%
   filter("human" %in% species & "mosquito" %in% species) %>%
   ungroup()
-Matching_Haplotypes_Pfs47_1_Molten <- Matching_Haplotypes_Pfs47_1_Molten %>%
+Matching_Haplotypes_Pfs47_1_Molten_matching <- Matching_Haplotypes_Pfs47_1_Molten %>%
   group_by(Timepoint) %>%
   filter("human" %in% species & "mosquito" %in% species) %>%
   ungroup()
-Matching_Haplotypes_Pfs47_2_Molten <- Matching_Haplotypes_Pfs47_2_Molten %>%
+Matching_Haplotypes_Pfs47_2_Molten_matching <- Matching_Haplotypes_Pfs47_2_Molten %>%
   group_by(Timepoint) %>%
   filter("human" %in% species & "mosquito" %in% species) %>%
   ungroup()
@@ -284,7 +285,7 @@ determine_sample_type <- function(group) {
   }
 }
 
-Matching_Haplotypes_CSP_Molten <- Matching_Haplotypes_CSP_Molten %>%
+Matching_Haplotypes_CSP_Molten_matching <- Matching_Haplotypes_CSP_Molten_matching %>%
   group_by(Timepoint, Haplotype) %>%
   mutate(Comparison = determine_sample_type(cur_data()),
          Day = str_extract(Timepoint, "_([^_]+)$"),  
@@ -292,7 +293,7 @@ Matching_Haplotypes_CSP_Molten <- Matching_Haplotypes_CSP_Molten %>%
          Day = as.numeric(str_sub(Day, 4)),
          Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
   ungroup()
-Matching_Haplotypes_TRAP_Molten <- Matching_Haplotypes_TRAP_Molten %>%
+Matching_Haplotypes_TRAP_Molten_matching <- Matching_Haplotypes_TRAP_Molten_matching %>%
   group_by(Timepoint, Haplotype) %>%
   mutate(Comparison = determine_sample_type(cur_data()),
          Day = str_extract(Timepoint, "_([^_]+)$"),  
@@ -300,7 +301,7 @@ Matching_Haplotypes_TRAP_Molten <- Matching_Haplotypes_TRAP_Molten %>%
          Day = as.numeric(str_sub(Day, 4)),
          Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
   ungroup()
-Matching_Haplotypes_Pfs47_1_Molten <- Matching_Haplotypes_Pfs47_1_Molten %>%
+Matching_Haplotypes_Pfs47_1_Molten_matching <- Matching_Haplotypes_Pfs47_1_Molten_matching %>%
   group_by(Timepoint, Haplotype) %>%
   mutate(Comparison = determine_sample_type(cur_data()),
          Day = str_extract(Timepoint, "_([^_]+)$"),  
@@ -308,7 +309,7 @@ Matching_Haplotypes_Pfs47_1_Molten <- Matching_Haplotypes_Pfs47_1_Molten %>%
          Day = as.numeric(str_sub(Day, 4)),
          Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
   ungroup()
-Matching_Haplotypes_Pfs47_2_Molten <- Matching_Haplotypes_Pfs47_2_Molten %>%
+Matching_Haplotypes_Pfs47_2_Molten_matching <- Matching_Haplotypes_Pfs47_2_Molten_matching %>%
   group_by(Timepoint, Haplotype) %>%
   mutate(Comparison = determine_sample_type(cur_data()),
          Day = str_extract(Timepoint, "_([^_]+)$"),  
@@ -318,9 +319,9 @@ Matching_Haplotypes_Pfs47_2_Molten <- Matching_Haplotypes_Pfs47_2_Molten %>%
   ungroup()
 
 # Plot
-Matching_Haplotypes_CSP_Molten$Comparison<-factor(Matching_Haplotypes_CSP_Molten$Comparison,levels=c("human_only","mosquito_only","matching"))
+Matching_Haplotypes_CSP_Molten_matching$Comparison<-factor(Matching_Haplotypes_CSP_Molten_matching$Comparison,levels=c("human_only","mosquito_only","matching"))
 pal<-c("#2c84a5", "#6f4e7c","#d4d084")
-a<- ggplot(Matching_Haplotypes_CSP_Molten, aes(x=as.factor(Day),fill=factor(Comparison))) + 
+a<- ggplot(Matching_Haplotypes_CSP_Molten_matching, aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
   theme_classic()+
   xlab("Day")+
@@ -328,8 +329,8 @@ a<- ggplot(Matching_Haplotypes_CSP_Molten, aes(x=as.factor(Day),fill=factor(Comp
   theme(legend.position="none")+
   ggtitle("CSP")+
   scale_fill_manual(values=pal)
-Matching_Haplotypes_TRAP_Molten$Comparison<-factor(Matching_Haplotypes_TRAP_Molten$Comparison,levels=c("human_only","mosquito_only","matching"))
-b<- ggplot(Matching_Haplotypes_TRAP_Molten, aes(x=as.factor(Day),fill=factor(Comparison))) + 
+Matching_Haplotypes_TRAP_Molten_matching$Comparison<-factor(Matching_Haplotypes_TRAP_Molten_matching$Comparison,levels=c("human_only","mosquito_only","matching"))
+b<- ggplot(Matching_Haplotypes_TRAP_Molten_matching, aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
   theme_classic()+
   #facet_wrap(~Matching_FinalHaplotypes_ALL$Host)
@@ -483,7 +484,7 @@ ggsave("Clonality_by_age.pdf", width=6, height=5)
 
 
 #Check accross haplotypes which ones are matching or not
-CSP_grouped_df <- Matching_Haplotypes_CSP_Molten %>%
+CSP_grouped_df <- Matching_Haplotypes_CSP_Molten_matching %>%
   group_by(Haplotype, Comparison) %>%
   summarise(Count = n()) %>%
   ungroup()
@@ -493,7 +494,7 @@ CSP_grouped_df <- CSP_grouped_df %>%
   mutate(Haplotype_num = as.numeric(gsub("csp-", "", Haplotype))) %>%
   arrange(Haplotype_num)
 
-TRAP_grouped_df <- Matching_Haplotypes_TRAP_Molten %>%
+TRAP_grouped_df <- Matching_Haplotypes_TRAP_Molten_matching %>%
   group_by(Haplotype, Comparison) %>%
   summarise(Count = n()) %>%
   ungroup()
@@ -527,7 +528,7 @@ combined_plot <- e + f + plot_annotation(title ="Are some haplotypes more likely
 ggsave("Haplotypes_transmission.pdf", combined_plot, width=11, height=5)
 
 #Check accross Pfs47 haplotypes which ones are matching or not
-Pfs47_1_grouped_df <- Matching_Haplotypes_Pfs47_1_Molten %>%
+Pfs47_1_grouped_df <- Matching_Haplotypes_Pfs47_1_Molten_matching %>%
   group_by(Haplotype, Comparison) %>%
   summarise(Count = n()) %>%
   ungroup()
@@ -537,7 +538,7 @@ Pfs47_1_grouped_df <- Pfs47_1_grouped_df %>%
   mutate(Haplotype_num = as.numeric(gsub("pfs47_1-", "", Haplotype))) %>%
   arrange(Haplotype_num)
 
-Pfs47_2_grouped_df <- Matching_Haplotypes_Pfs47_2_Molten %>%
+Pfs47_2_grouped_df <- Matching_Haplotypes_Pfs47_2_Molten_matching %>%
   group_by(Haplotype, Comparison) %>%
   summarise(Count = n()) %>%
   ungroup()
@@ -568,3 +569,32 @@ h<-ggplot(Pfs47_2_grouped_df, aes(x = reorder(Haplotype, Haplotype_num), y = Cou
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 combined_plot <- g + h + plot_annotation(title ="Are any Pfs47 haplotypes more likely to transmit than others?") 
 ggsave("Pfs47_haplotypes_transmission.pdf", combined_plot, width=11, height=5)
+
+# Overview of all haplotypes
+Matching_Haplotypes_TRAP_Molten <- Matching_Haplotypes_TRAP_Molten %>%
+  group_by(Timepoint, Haplotype) %>%
+  mutate(Comparison = determine_sample_type(cur_data()),
+         Day = str_extract(Timepoint, "_([^_]+)$"),  
+         Day = str_replace_all(Day, "_", ""), 
+         Day = as.numeric(str_sub(Day, 4)),
+         Individual = str_extract(Timepoint, "^[^_]+"),
+         Reads = as.numeric(Reads),
+         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)),
+         Day_Species = paste0(Day,"_",species),
+         Day_Species = factor(Day_Species, levels = c("0_human","0_mosquito","2_human","2_mosquito","7_human","7_mosquito","14_human","14_mosquito","21_human","21_mosquito","28_human","28_mosquito","35_human","35_mosquito"))) %>%
+  ungroup()
+
+p <- ggplot(Matching_Haplotypes_TRAP_Molten, aes(x=Day_Species, y=Reads, fill=Haplotype)) + 
+  geom_bar(position="stack", stat="identity") +
+  geom_bar_pattern(aes(pattern = species, pattern_density = ifelse(species == "human", 0, 0.1)), 
+                   position = "stack", 
+                   stat = "identity",
+                   pattern_angle = 45) +
+  facet_wrap(~Individual, scales = "free", ncol=6) +
+  theme_classic() +
+  theme(legend.position = "none")
+
+ggsave("TRAP_overview.pdf", p, width=20, height=25)
+
+
+
