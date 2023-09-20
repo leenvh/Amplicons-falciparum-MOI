@@ -579,22 +579,110 @@ Matching_Haplotypes_TRAP_Molten <- Matching_Haplotypes_TRAP_Molten %>%
          Day = as.numeric(str_sub(Day, 4)),
          Individual = str_extract(Timepoint, "^[^_]+"),
          Reads = as.numeric(Reads),
+         Percentage = as.numeric(Percentage),
          Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)),
          Day_Species = paste0(Day,"_",species),
-         Day_Species = factor(Day_Species, levels = c("0_human","0_mosquito","2_human","2_mosquito","7_human","7_mosquito","14_human","14_mosquito","21_human","21_mosquito","28_human","28_mosquito","35_human","35_mosquito"))) %>%
+         Day_Species = factor(Day_Species, levels = c("0_human","0_mosquito","2_human","2_mosquito","7_human","7_mosquito","14_human","14_mosquito","21_human","21_mosquito","28_human","28_mosquito","35_human","35_mosquito")),
+         Day_Species = as.character(Day_Species),
+         Day_Species = ifelse(species == "mosquito",paste0(Day_Species, "_",sub(".*_", "", SampleID)),Day_Species)) %>%
   ungroup()
 
-p <- ggplot(Matching_Haplotypes_TRAP_Molten, aes(x=Day_Species, y=Reads, fill=Haplotype)) + 
+generate_ordered_levels <- function(values) {
+  # Extract unique days from values
+  unique_days <- unique(as.numeric(gsub("\\D", "", values)))
+  
+  # Sort unique days
+  sorted_days <- sort(unique_days)
+  
+  # For each day, order "human" first followed by "mosquito"
+  ordered_levels <- unlist(lapply(sorted_days, function(day) {
+    human_label <- paste0(day, "_human")
+    mosquito_labels <- sort(unique(grep(paste0("^", day, "_mosquito"), values, value = TRUE)))
+    c(human_label, mosquito_labels)
+  }))
+  
+  # Ensure no duplicates
+  ordered_levels <- unique(ordered_levels)
+  
+  return(ordered_levels)
+}
+
+Matching_Haplotypes_TRAP_Molten$Day_Species <- factor(Matching_Haplotypes_TRAP_Molten$Day_Species, levels = generate_ordered_levels(Matching_Haplotypes_TRAP_Molten$Day_Species))
+
+p <- ggplot(Matching_Haplotypes_TRAP_Molten, aes(x=Day_Species, y=Percentage, fill=Haplotype)) + 
   geom_bar(position="stack", stat="identity") +
-  geom_bar_pattern(aes(pattern = species, pattern_density = ifelse(species == "human", 0, 0.1)), 
+  geom_bar_pattern(aes(pattern = species, pattern_density = ifelse(species == "human", 0, 0.1),pattern_fill = Haplotype), 
                    position = "stack", 
                    stat = "identity",
+                   pattern="stripe",
+                   pattern_spacing = 0.2,
+                   pattern_size=0.05,
+                   pattern_frequency = 0.05,
                    pattern_angle = 45) +
-  facet_wrap(~Individual, scales = "free", ncol=6) +
+  facet_wrap(~Individual, scales = "free", ncol=5) +
   theme_classic() +
-  theme(legend.position = "none")
+  theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
-ggsave("TRAP_overview.pdf", p, width=20, height=25)
+ggsave("TRAP_overview.pdf", p, width=40, height=50,limitsize = FALSE)
+
+
+# Overview of all haplotypes
+Matching_Haplotypes_CSP_Molten <- Matching_Haplotypes_CSP_Molten %>%
+  group_by(Timepoint, Haplotype) %>%
+  mutate(Comparison = determine_sample_type(cur_data()),
+         Day = str_extract(Timepoint, "_([^_]+)$"),  
+         Day = str_replace_all(Day, "_", ""), 
+         Day = as.numeric(str_sub(Day, 4)),
+         Individual = str_extract(Timepoint, "^[^_]+"),
+         Reads = as.numeric(Reads),
+         Percentage = as.numeric(Percentage),
+         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)),
+         Day_Species = paste0(Day,"_",species),
+         Day_Species = factor(Day_Species, levels = c("0_human","0_mosquito","2_human","2_mosquito","7_human","7_mosquito","14_human","14_mosquito","21_human","21_mosquito","28_human","28_mosquito","35_human","35_mosquito")),
+         Day_Species = as.character(Day_Species),
+         Day_Species = ifelse(species == "mosquito",paste0(Day_Species, "_",sub(".*_", "", SampleID)),Day_Species)) %>%
+  ungroup()
+
+generate_ordered_levels <- function(values) {
+  # Extract unique days from values
+  unique_days <- unique(as.numeric(gsub("\\D", "", values)))
+  
+  # Sort unique days
+  sorted_days <- sort(unique_days)
+  
+  # For each day, order "human" first followed by "mosquito"
+  ordered_levels <- unlist(lapply(sorted_days, function(day) {
+    human_label <- paste0(day, "_human")
+    mosquito_labels <- sort(unique(grep(paste0("^", day, "_mosquito"), values, value = TRUE)))
+    c(human_label, mosquito_labels)
+  }))
+  
+  # Ensure no duplicates
+  ordered_levels <- unique(ordered_levels)
+  
+  return(ordered_levels)
+}
+
+Matching_Haplotypes_CSP_Molten$Day_Species <- factor(Matching_Haplotypes_CSP_Molten$Day_Species, levels = generate_ordered_levels(Matching_Haplotypes_CSP_Molten$Day_Species))
+
+p <- ggplot(Matching_Haplotypes_CSP_Molten, aes(x=Day_Species, y=Percentage, fill=Haplotype)) + 
+  geom_bar(position="stack", stat="identity") +
+  geom_bar_pattern(aes(pattern = species, pattern_density = ifelse(species == "human", 0, 0.1),pattern_fill = Haplotype), 
+                   position = "stack", 
+                   stat = "identity",
+                   pattern="stripe",
+                   pattern_spacing = 0.2,
+                   pattern_size=0.05,
+                   pattern_frequency = 0.05,
+                   pattern_angle = 45) +
+  facet_wrap(~Individual, scales = "free", ncol=5) +
+  theme_classic() +
+  theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+ggsave("CSP_overview.pdf", p, width=40, height=50,limitsize = FALSE)
+
 
 
 
