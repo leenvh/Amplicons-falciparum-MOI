@@ -8,6 +8,9 @@ library(ggpubr)
 library(viridis)
 library(ggpattern)
 library(logistf)
+library(RColorBrewer)
+library(reshape2)
+
 
 #Set working directory and convert .txt files to .csv files
 setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis")
@@ -341,55 +344,114 @@ pal<-c("#2c84a5", "#6f4e7c","#d4d084")
 a<- ggplot(Matching_Haplotypes_CSP_Molten_matching[Matching_Haplotypes_CSP_Molten_matching$Day%in% c("0","2","7","14"),], aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
   theme_classic()+
-  xlab("Day")+
-  ylab("")+
-  theme(legend.position="none")+
+  xlab("Days after treatment initiation")+
+  ylab("Percentage of reads")+
   ggtitle("CSP")+
+  theme(legend.position="none",
+        axis.text.x = element_text(size = 10), 
+        axis.text.y = element_text(size = 10))+
   scale_fill_manual(values=pal)
 Matching_Haplotypes_TRAP_Molten_matching$Comparison<-factor(Matching_Haplotypes_TRAP_Molten_matching$Comparison,levels=c("human_only","mosquito_only","matching"))
 b<- ggplot(Matching_Haplotypes_TRAP_Molten_matching[Matching_Haplotypes_TRAP_Molten_matching$Day%in% c("0","2","7","14"),], aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
   theme_classic()+
   #facet_wrap(~Matching_FinalHaplotypes_ALL$Host)
-  xlab("Day")+
+  xlab("Days after treatment initiation")+
   ylab("")+
   scale_fill_manual(values=pal, name =" ")+
-  ggtitle("TRAP")
+  ggtitle("TRAP")+
+  theme(axis.text.x = element_text(size = 10), 
+      axis.text.y = element_text(size = 10))
 combined_plot <- a + b + plot_layout(ncol=2, widths=c(1.1, 1))
 ggsave("Matching_Haplotypes_Percentages.pdf", combined_plot, width=14, height=6)
 
 
-#Check if matching haplotypes in individuals more often have high or low coverage in Day0?
+#Check if matching haplotypes in multiclonal individuals more often have high or low coverage at Day0? CSP
 Matching_Haplotypes_CSP_Molten_matching_Day0<-Matching_Haplotypes_CSP_Molten_matching[Matching_Haplotypes_CSP_Molten_matching$Day==0,]
 Matching_Haplotypes_CSP_Molten_matching_Day0<-Matching_Haplotypes_CSP_Molten_matching_Day0[Matching_Haplotypes_CSP_Molten_matching_Day0$MOI>2,]
 Matching_Haplotypes_CSP_Molten_matching_Day0<-Matching_Haplotypes_CSP_Molten_matching_Day0[Matching_Haplotypes_CSP_Molten_matching_Day0$species=="human",]
-filtered_df <- Matching_Haplotypes_CSP_Molten_matching_Day0 %>%
+human_only_df <- Matching_Haplotypes_CSP_Molten_matching_Day0 %>%
+  filter(Comparison == "human_only") %>%
+  mutate(Percentage = as.numeric(Percentage)) %>%
   group_by(SampleID, Comparison) %>%
-  arrange(desc(Percentage)) %>%
-  filter(Comparison != "human_only" | row_number() == 1) %>%
-  ungroup()
+  summarise(TotalPercentage = sum(Percentage, na.rm = TRUE))
 
-ggplot(filtered_df, aes(x=Comparison,y=as.numeric(Percentage))) + 
+# Filtering the non-human_only rows
+non_human_only_df <- Matching_Haplotypes_CSP_Molten_matching_Day0 %>%
+  filter(Comparison != "human_only")%>%
+  mutate(TotalPercentage = as.numeric(Percentage))
+
+# Binding the two dataframes together
+filtered_df <- bind_rows(human_only_df, non_human_only_df)
+
+ggplot(filtered_df, aes(x=Comparison,y=as.numeric(TotalPercentage))) + 
   geom_boxplot()+
+  geom_jitter(width = 0.2, height = 0, alpha = 0.5, size = 3) +
   theme_classic()+
   xlab("Type")+
   ylab("Percentage of total reads")+
   ggtitle("CSP")
+ggsave("Percentage_Reads_Human_only_vs_matching_CSP.pdf", width=6, height=5)
 
+#Check if matching haplotypes in multiclonal individuals more often have high or low coverage at Day0 per GC category. CSP
+Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat<-merge(Matching_Haplotypes_CSP_Molten_matching_Day0,ClinicalData,by="SampleID")
+Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat$GC_cat[Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat$totalgct_ul>100]<-2
+Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat$GC_cat[Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat$totalgct_ul<100]<-1
+human_only_df <- Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat %>%
+  filter(Comparison == "human_only") %>%
+  mutate(Percentage = as.numeric(Percentage)) %>%
+  group_by(SampleID, Comparison) %>%
+  summarise(
+    TotalPercentage = sum(Percentage, na.rm = TRUE),
+    GC_cat = mean(GC_cat, na.rm = TRUE)
+  )
+
+# Filtering the non-human_only rows
+non_human_only_df <- Matching_Haplotypes_CSP_Molten_matching_Day0_GC_Cat %>%
+  filter(Comparison != "human_only")%>%
+  mutate(TotalPercentage = as.numeric(Percentage))
+
+# Binding the two dataframes together
+filtered_df <- bind_rows(human_only_df, non_human_only_df)
+
+ggplot(filtered_df, aes(x=Comparison,y=as.numeric(TotalPercentage))) + 
+  geom_boxplot()+
+  geom_jitter(width = 0.2, height = 0, alpha = 0.5, size = 3) +
+  facet_wrap(~GC_cat)+
+  theme_classic()+
+  xlab("Type")+
+  ylab("Percentage of total reads")+
+  ggtitle("CSP")
+ggsave("Percentage_Reads_Human_only_vs_matching_CSP_GC_cat.pdf", width=6, height=5)
+
+
+#Check if matching haplotypes in multiclonal individuals more often have high or low coverage at Day0? TRAP
 Matching_Haplotypes_TRAP_Molten_matching_Day0<-Matching_Haplotypes_TRAP_Molten_matching[Matching_Haplotypes_TRAP_Molten_matching$Day==0,]
 Matching_Haplotypes_TRAP_Molten_matching_Day0<-Matching_Haplotypes_TRAP_Molten_matching_Day0[Matching_Haplotypes_TRAP_Molten_matching_Day0$MOI>2,]
 Matching_Haplotypes_TRAP_Molten_matching_Day0<-Matching_Haplotypes_TRAP_Molten_matching_Day0[Matching_Haplotypes_TRAP_Molten_matching_Day0$species=="human",]
-filtered_df <- Matching_Haplotypes_TRAP_Molten_matching_Day0 %>%
+human_only_df <- Matching_Haplotypes_TRAP_Molten_matching_Day0 %>%
+  filter(Comparison == "human_only") %>%
+  mutate(Percentage = as.numeric(Percentage)) %>%
   group_by(SampleID, Comparison) %>%
-  arrange(desc(Percentage)) %>%
-  filter(Comparison != "human_only" | row_number() == 1) %>%
-  ungroup()
-ggplot(filtered_df, aes(x=Comparison,y=as.numeric(Percentage))) + 
+  summarise(TotalPercentage = sum(Percentage, na.rm = TRUE))
+
+# Filtering the non-human_only rows
+non_human_only_df <- Matching_Haplotypes_TRAP_Molten_matching_Day0 %>%
+  filter(Comparison != "human_only")%>%
+  mutate(TotalPercentage = as.numeric(Percentage))
+
+# Binding the two dataframes together
+filtered_df <- bind_rows(human_only_df, non_human_only_df)
+
+ggplot(filtered_df, aes(x=Comparison,y=as.numeric(TotalPercentage))) + 
   geom_boxplot()+
+  geom_jitter(width = 0.2, height = 0, alpha = 0.5, size = 3) +
   theme_classic()+
   xlab("Type")+
   ylab("Percentage of total reads")+
   ggtitle("TRAP")
+ggsave("Percentage_Reads_Human_only_vs_matching_TRAP.pdf", width=6, height=5)
+
 
 #Check correlation between CSP MOI and TRAP MOI
 ggplot(FINAL_CSP_TRAP, aes(x=CSP_MOI, y=TRAP_MOI)) + 
@@ -403,6 +465,7 @@ ggplot(FINAL_CSP_TRAP, aes(x=CSP_MOI, y=TRAP_MOI)) +
   ggtitle("Correlation between CSP And TRAP MOI")
 ggsave("Correlation_CSP_TRAP.pdf", width=6, height=5)
 
+
 cor.test(FINAL_CSP_TRAP$CSP_MOI, FINAL_CSP_TRAP$TRAP_MOI, method = c("pearson")) #0.745256
 
 
@@ -411,20 +474,20 @@ cor.test(FINAL_CSP_TRAP$CSP_MOI, FINAL_CSP_TRAP$TRAP_MOI, method = c("pearson"))
 FINAL_CSP_TRAP<-FINAL_CSP_TRAP %>%
   mutate(MOI_Combined = pmax(FINAL_CSP_TRAP$TRAP_MOI,FINAL_CSP_TRAP$CSP_MOI, na.rm = TRUE))
 
-c<-ggplot(FINAL_CSP_TRAP[FINAL_CSP_TRAP$Species == "human",], aes(x=Day, y=MOI_Combined,fill=Day)) + 
-  geom_boxplot(aes(fill=Day), alpha = 0.5, outlier.shape = NA) +
+c<-ggplot(FINAL_CSP_TRAP[FINAL_CSP_TRAP$Species == "human" & FINAL_CSP_TRAP$Day%in% c("0","2","7","14","21","28"),], aes(x=Day, y=MOI_Combined)) + 
+  geom_boxplot(aes(fill=Day), alpha = 0.5, fill="lightgrey", outlier.shape = NA) +
   theme_classic()+
   theme(legend.position = "none")+
-  labs(x= "Visit Day", y ="MOI")+
-  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10))+
-  ggtitle("Clonality in individuals")
+  labs(x= "Days after treatment initiation", y ="MOI")+
+  scale_y_continuous(breaks = seq(0, 10, by = 1)) + 
+  ggtitle("Clonality in individuals") 
 
-d<-ggplot(FINAL_CSP_TRAP[FINAL_CSP_TRAP$Species == "mosquito",], aes(x=Day, y=MOI_Combined,fill=Day)) + 
-  geom_boxplot(aes(fill=Day), alpha = 0.5, outlier.shape = NA) +
-  theme_classic()+
-  theme(legend.position = "none")+
-  labs(x= "Visit Day", y ="MOI")+
-  scale_y_continuous(breaks = c(0, 2, 4, 6, 8, 10))+
+d <- ggplot(FINAL_CSP_TRAP[FINAL_CSP_TRAP$Species == "mosquito",], aes(x=Day, y=MOI_Combined)) + 
+  geom_boxplot(alpha = 0.5, fill="lightgrey", outlier.shape = NA) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x= "Days after treatment initiation", y ="MOI") +
+  scale_y_continuous(breaks = seq(0, 10, by = 1)) + 
   ggtitle("Clonality in mosquitoes")
 
 combined_clonality_plot <- c + d + plot_layout(ncol=2)
@@ -432,6 +495,13 @@ ggsave("Clonality.pdf", combined_clonality_plot, width=10, height=5)
 
 
 #Presence of clones in population
+#All haplotypes at any timepoint
+Total_haplotypes_CSP <- unique(na.omit(str_split(FinalHaplotypes$CSP_hap, " ") %>% unlist())) #57
+ordered_Total_haplotypes_CSP <- Total_haplotypes_CSP[order(as.integer(str_extract(Total_haplotypes_CSP, "\\d+")))]
+print(ordered_Total_haplotypes_CSP)
+Total_haplotypes_TRAP <- unique(na.omit(str_split(FinalHaplotypes$TRAP_hap, " ") %>% unlist())) #53
+ordered_Total_haplotypes_TRAP <- Total_haplotypes_TRAP[order(as.integer(str_extract(Total_haplotypes_TRAP, "\\d+")))]
+print(ordered_Total_haplotypes_TRAP)
 #human
 #TRAP
 FinalHaplotypes_Human_Day0<-FinalHaplotypes_Human[FinalHaplotypes_Human$Day=="0",]
@@ -628,6 +698,18 @@ ggplot(merge, aes(x=as.factor(MOI_Combined), y=percentagemosqinfected,fill=facto
   ggtitle("Infection rate ~ clonality")
 ggsave("Infection_rate_clonality.pdf", width=6, height=5)
 
+#Check relation between clonality and infection rates (individuals only) - normalised by GC
+merge$normalized_infection_rate <- (merge$percentagemosqinfected / merge$totalgct_ul) * 100
+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=normalized_infection_rate,fill=factor(MOI_Combined))) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  theme(legend.position = "none")+
+  labs(x= "MOI",y="Infected Mosquitoes (%)")+
+  ggtitle("Infection rate ~ clonality")
+ggsave("Infection_rate_clonality_Normalised_by_GC.pdf", width=6, height=5)
+
 #Check relation between clonality and age (individuals only)
 merge <- merge %>%
   mutate(age_group = case_when(
@@ -651,6 +733,75 @@ ggplot(merge, aes(x=age, y=mean_MOI_by_age)) +
   labs(x= "Age",y="Mean MOI")+
   ggtitle("Mean clonality by age")
 ggsave("Clonality_by_age.pdf", width=6, height=5)
+
+
+#Check relation between midgut clonality and oocyst number (mosquitoes only)
+OocystData<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/Oocyst_data.csv",header=TRUE,sep=',')
+OocystData$SampleID<-paste(OocystData$studycode,"_Day",OocystData$studyvisit,sep="")
+
+
+transformed_df <- data.frame()
+
+for (i in 1:nrow(OocystData)) {
+  row <- OocystData[i,]
+  sample_id <- as.character(row$SampleID)
+  
+  # Iterate over each pair of mosqnbr# and oocynbr# columns
+  for (j in 1:75) { # Adjust the range according to the number of mosqnbr# and oocynbr# columns
+    mosq_col <- paste0("mosqnbr", j)
+    oocy_col <- paste0("oocynbr", j)
+    
+    if (!is.na(row[[mosq_col]]) && row[[mosq_col]] == 1) {
+      # Create a new row with SampleID_Mosq# format and the corresponding oocyst number
+      new_row <- data.frame(
+        SampleID = paste0(sample_id, "_Mosq", j),
+        oocysts = row[[oocy_col]]
+      )
+      
+      # Add the new row to the transformed dataframe
+      transformed_df <- rbind(transformed_df, new_row)
+    }
+  }
+}
+
+
+merge<-merge(FINAL_CSP_TRAP,transformed_df,by="SampleID")
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=oocysts,fill=factor(MOI_Combined))) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  theme(legend.position = "none")+
+  labs(x= "MOI",y="Oocyst number")+
+  ggtitle("Oocyst number ~ clonality")
+ggsave("Oocyst_clonality.pdf", width=6, height=5)
+
+#Check relation between individual clonality and oocyst number (mosquitoes only)
+transformed_df$Individual_ID <- gsub("(.*)_(.*)", "\\1", transformed_df$SampleID)
+FINAL_CSP_TRAP_human<-FINAL_CSP_TRAP[FINAL_CSP_TRAP$Species == "human",]
+merge <- merge(x = FINAL_CSP_TRAP_human, y = transformed_df, by.x = 'SampleID', by.y = 'Individual_ID', all.y = TRUE)
+merge <- merge[!is.na(merge$MOI_Combined), ]
+  
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=oocysts,fill=factor(MOI_Combined))) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  theme(legend.position = "none")+
+  labs(x= "MOI individual",y="Oocyst number")+
+  ggtitle("Individual clonality ~ Oocyst number")
+ggsave("Individual_Clonality_Oocyst_number.pdf", width=6, height=5)
+
+#Check relation between individual clonality and oocyst number (mosquitoes only) - normalised by GC
+merge<-merge(merge,ClinicalData,by="SampleID")
+merge$normalized_oocysts <- (merge$oocysts / merge$totalgct_ul) * 100
+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=normalized_oocysts,fill=factor(MOI_Combined))) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  theme(legend.position = "none")+
+  labs(x= "MOI individual",y="Oocyst number")+
+  ggtitle("Individual clonality ~ Oocyst number")
+ggsave("Individual_Clonality_Oocyst_number_normalised_by_GC.pdf", width=6, height=5)
 
 #Check relation between clonality and month (individuals only)
 merge$visitdate_hb <- as.Date(merge$visitdate_hb, format="%d/%m/%Y")  # Adjust the format argument as needed
@@ -873,6 +1024,300 @@ p <- ggplot(Matching_Haplotypes_CSP_Molten, aes(x=Day_Species, y=Percentage, fil
 ggsave("CSP_overview.pdf", p, width=40, height=50,limitsize = FALSE)
 
 
+#Make nice plot for CSP PQ-04-043
+Matching_Haplotypes_CSP_Molten_043<-Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$Individual=="PQ-04-043",]
+
+Matching_Haplotypes_CSP_Molten_043$Day <- as.numeric(as.character(Matching_Haplotypes_CSP_Molten_043$Day))
+Matching_Haplotypes_CSP_Molten_043$Percentage <- as.numeric(as.character(Matching_Haplotypes_CSP_Molten_043$Percentage))
+
+Matching_Haplotypes_CSP_Molten_043 <- Matching_Haplotypes_CSP_Molten_043 %>%
+  complete(Day, nesting(Haplotype, species), fill = list(Reads = 0))
+
+Matching_Haplotypes_CSP_Molten_043$Percentage <- ifelse(
+  is.na(Matching_Haplotypes_CSP_Molten_043$Percentage),
+  0,
+  Matching_Haplotypes_CSP_Molten_043$Percentage
+)
+
+Matching_Haplotypes_CSP_Molten_043$SampleID[Matching_Haplotypes_CSP_Molten_043$species == "human"] <- paste0("PQ-04-043_Day",Matching_Haplotypes_CSP_Molten_043$Day[Matching_Haplotypes_CSP_Molten_043$species == "human"])
+merge <- merge(Matching_Haplotypes_CSP_Molten_043, ClinicalData, by = "SampleID")
+merge$totalPC<-merge$ring_ul_all + merge$totalgct_ul
+merge$Perc_totalPC<- (merge$totalPC * merge$Percentage)/100
+
+cols <- unikn::usecol(c("lavender", "rosybrown1", "indianred3", "palegreen3", "plum4", "cyan3"), n = 9)
+#cols<- c("#FBB4AE","#FFF2AE","#C2E699" ,"#FDCDAC", "#CCEBC5" ,"#FDDAEC" ,"#FEEBE2", "#CBD5E8","#F1E2CC","#EDF8E9")
+unique_haplotypes <- unique(merge$Haplotype)
+names(cols) <- unique_haplotypes 
+
+ordered_haplotypes <- merge %>%
+  filter(Day == 0) %>%
+  arrange(Percentage) %>%
+  pull(Haplotype)
+merge$Haplotype <- factor(merge$Haplotype, levels = unique(ordered_haplotypes))
+
+area_plot<-ggplot(merge, aes(x = Day, y = Percentage, fill = Haplotype)) +
+  facet_wrap(~species, scales = "free_y") + 
+  geom_area(position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  scale_x_continuous(breaks = c(0,2,7,21))+
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+#ggplot(merge, aes(x = Day, y = Perc_totalPC, fill = Haplotype)) +
+#facet_wrap(~species, scales = "free_y") + 
+#geom_area(position = "stack") +
+# scale_fill_viridis_d() +
+# labs(x = "Day", y = "Reads") +
+# theme_classic() +
+# theme(legend.position = "bottom") +
+# scale_y_sqrt()
+
+Matching_Haplotypes_CSP_Molten_043 <- Matching_Haplotypes_CSP_Molten_043 %>%
+  mutate(mosquito_id = gsub(".*_", "", SampleID))  
+
+bar_plot <- ggplot(Matching_Haplotypes_CSP_Molten_043[Matching_Haplotypes_CSP_Molten_043$species == "mosquito",], 
+                   aes(x = as.factor(Day), y = Percentage, fill = Haplotype)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  facet_wrap(~mosquito_id, scales = "free_x", strip.position = "bottom")
+
+
+combined_plot <- grid.arrange(bar_plot, area_plot, ncol=1)
+ggsave("PQ-04-043.pdf", combined_plot, width=10, height=10,limitsize = FALSE)
+
+ggplot(merge, aes(x=Day, y=ring_ul_all))+ 
+  geom_line()+
+  geom_point()+
+  labs(x="Timepoint",y="rings/uL")+
+  scale_x_continuous(breaks=c(0,2,7,21))+
+  theme_classic()
+ggsave("PQ04043_PC.pdf", width=18, height=1.4)
+
+ggplot(merge, aes(x=Day, y=totalgct_ul))+ 
+  geom_line()+
+  geom_point()+
+  labs(x="Timepoint",y="Gametocytes/uL")+
+  scale_x_continuous(breaks=c(0,2,7,21))+
+  theme_classic()
+ggsave("PQ04043_GC.pdf", width=18, height=1.4)
+
+
+#Make nice plot for CSP PQ-04-026
+Matching_Haplotypes_CSP_Molten_026<-Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$Individual=="PQ-04-026",]
+
+Matching_Haplotypes_CSP_Molten_026$Day <- as.numeric(as.character(Matching_Haplotypes_CSP_Molten_026$Day))
+Matching_Haplotypes_CSP_Molten_026$Percentage <- as.numeric(as.character(Matching_Haplotypes_CSP_Molten_026$Percentage))
+
+Matching_Haplotypes_CSP_Molten_026 <- Matching_Haplotypes_CSP_Molten_026 %>%
+  complete(Day, nesting(Haplotype, species), fill = list(Reads = 0))
+
+Matching_Haplotypes_CSP_Molten_026$Percentage <- ifelse(
+  is.na(Matching_Haplotypes_CSP_Molten_026$Percentage),
+  0,
+  Matching_Haplotypes_CSP_Molten_026$Percentage
+)
+
+Matching_Haplotypes_CSP_Molten_026$SampleID[Matching_Haplotypes_CSP_Molten_026$species == "human"] <- paste0("PQ-04-026_Day",Matching_Haplotypes_CSP_Molten_026$Day[Matching_Haplotypes_CSP_Molten_026$species == "human"])
+merge <- merge(Matching_Haplotypes_CSP_Molten_026, ClinicalData, by = "SampleID")
+merge$totalPC<-merge$ring_ul_all + merge$totalgct_ul
+merge$Perc_totalPC<- (merge$totalPC * merge$Percentage)/100
+
+cols <- unikn::usecol(c("lavender", "khaki2", "lightskyblue2", "plum4"), n = 3)
+
+unique_haplotypes <- unique(merge$Haplotype)
+names(cols) <- unique_haplotypes 
+
+ordered_haplotypes <- merge %>%
+  filter(Day == 0) %>%
+  arrange(Percentage) %>%
+  pull(Haplotype)
+merge$Haplotype <- factor(merge$Haplotype, levels = unique(ordered_haplotypes))
+
+area_plot<-ggplot(merge, aes(x = Day, y = Percentage, fill = Haplotype)) +
+  facet_wrap(~species, scales = "free_y") + 
+  geom_area(position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  scale_x_continuous(breaks = c(0,2,7,21))+
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+#ggplot(merge, aes(x = Day, y = Perc_totalPC, fill = Haplotype)) +
+#facet_wrap(~species, scales = "free_y") + 
+#geom_area(position = "stack") +
+# scale_fill_viridis_d() +
+# labs(x = "Day", y = "Reads") +
+# theme_classic() +
+# theme(legend.position = "bottom") +
+# scale_y_sqrt()
+
+Matching_Haplotypes_CSP_Molten_026 <- Matching_Haplotypes_CSP_Molten_026 %>%
+  mutate(mosquito_id = gsub(".*_", "", SampleID))  
+
+bar_plot <- ggplot(Matching_Haplotypes_CSP_Molten_026[Matching_Haplotypes_CSP_Molten_026$species == "mosquito",], 
+                   aes(x = as.factor(Day), y = Percentage, fill = Haplotype)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  facet_wrap(~mosquito_id, scales = "free_x", strip.position = "bottom")
+
+
+combined_plot <- grid.arrange(bar_plot, area_plot, ncol=1)
+ggsave("PQ-04-026.pdf", combined_plot, width=10, height=10,limitsize = FALSE)
+
+ggplot(merge, aes(x=Day, y=ring_ul_all))+ 
+  geom_line()+
+  geom_point()+
+  labs(x="Timepoint",y="rings/uL")+
+  scale_x_continuous(breaks=c(0,2,7,14,21,28))+
+  theme_classic()
+ggsave("PQ04026_PC.pdf", width=18, height=1.4)
+
+ggplot(merge, aes(x=Day, y=totalgct_ul))+ 
+  geom_line()+
+  geom_point()+
+  labs(x="Timepoint",y="Gametocytes/uL")+
+  scale_x_continuous(breaks=c(0,2,7,14,21,28))+
+  theme_classic()
+ggsave("PQ04026_GC.pdf", width=18, height=1.4)
+
+
+#Make nice plot for TRAP PQ-04-043
+Matching_Haplotypes_TRAP_Molten_043<-Matching_Haplotypes_TRAP_Molten[Matching_Haplotypes_TRAP_Molten$Individual=="PQ-04-043",]
+
+Matching_Haplotypes_TRAP_Molten_043$Day <- as.numeric(as.character(Matching_Haplotypes_TRAP_Molten_043$Day))
+Matching_Haplotypes_TRAP_Molten_043$Percentage <- as.numeric(as.character(Matching_Haplotypes_TRAP_Molten_043$Percentage))
+
+Matching_Haplotypes_TRAP_Molten_043 <- Matching_Haplotypes_TRAP_Molten_043 %>%
+  complete(Day, nesting(Haplotype, species), fill = list(Reads = 0))
+
+Matching_Haplotypes_TRAP_Molten_043$Percentage <- ifelse(
+  is.na(Matching_Haplotypes_TRAP_Molten_043$Percentage),
+  0,
+  Matching_Haplotypes_TRAP_Molten_043$Percentage
+)
+
+Matching_Haplotypes_TRAP_Molten_043$SampleID[Matching_Haplotypes_TRAP_Molten_043$species == "human"] <- paste0("PQ-04-043_Day",Matching_Haplotypes_TRAP_Molten_043$Day[Matching_Haplotypes_TRAP_Molten_043$species == "human"])
+merge <- merge(Matching_Haplotypes_TRAP_Molten_043, ClinicalData, by = "SampleID")
+merge$totalPC<-merge$ring_ul_all + merge$totalgct_ul
+merge$Perc_totalPC<- (merge$totalPC * merge$Percentage)/100
+
+cols <- unikn::usecol(c("goldenrod2", "indianred3", "rosybrown1", "palegreen3", "plum4", "dodgerblue"), n = 11)
+
+unique_haplotypes <- unique(merge$Haplotype)
+names(cols) <- unique_haplotypes 
+
+ordered_haplotypes <- merge %>%
+  filter(Day == 0) %>%
+  arrange(Percentage) %>%
+  pull(Haplotype)
+merge$Haplotype <- factor(merge$Haplotype, levels = unique(ordered_haplotypes))
+
+area_plot<-ggplot(merge, aes(x = Day, y = Percentage, fill = Haplotype)) +
+  facet_wrap(~species, scales = "free_y") + 
+  geom_area(position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  scale_x_continuous(breaks = c(0,2,7,21))+
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+#ggplot(merge, aes(x = Day, y = Perc_totalPC, fill = Haplotype)) +
+#facet_wrap(~species, scales = "free_y") + 
+#geom_area(position = "stack") +
+# scale_fill_viridis_d() +
+# labs(x = "Day", y = "Reads") +
+# theme_classic() +
+# theme(legend.position = "bottom") +
+# scale_y_sqrt()
+
+Matching_Haplotypes_TRAP_Molten_043 <- Matching_Haplotypes_TRAP_Molten_043 %>%
+  mutate(mosquito_id = gsub(".*_", "", SampleID))  
+
+bar_plot <- ggplot(Matching_Haplotypes_TRAP_Molten_043[Matching_Haplotypes_TRAP_Molten_043$species == "mosquito",], 
+                   aes(x = as.factor(Day), y = Percentage, fill = Haplotype)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  facet_wrap(~mosquito_id, scales = "free_x", strip.position = "bottom")
+
+
+combined_plot <- grid.arrange(bar_plot, area_plot, ncol=1)
+ggsave("PQ-04-043_TRAP.pdf", combined_plot, width=10, height=10,limitsize = FALSE)
+
+
+#Make nice plot for CSP PQ-04-047
+Matching_Haplotypes_CSP_Molten_047<-Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$Individual=="PQ-04-047",]
+
+Matching_Haplotypes_CSP_Molten_047$Day <- as.numeric(as.character(Matching_Haplotypes_CSP_Molten_047$Day))
+Matching_Haplotypes_CSP_Molten_047$Percentage <- as.numeric(as.character(Matching_Haplotypes_CSP_Molten_047$Percentage))
+
+Matching_Haplotypes_CSP_Molten_047 <- Matching_Haplotypes_CSP_Molten_047 %>%
+  complete(Day, nesting(Haplotype, species), fill = list(Reads = 0))
+
+Matching_Haplotypes_CSP_Molten_047$Percentage <- ifelse(
+  is.na(Matching_Haplotypes_CSP_Molten_047$Percentage),
+  0,
+  Matching_Haplotypes_CSP_Molten_047$Percentage
+)
+
+Matching_Haplotypes_CSP_Molten_047$SampleID[Matching_Haplotypes_CSP_Molten_047$species == "human"] <- paste0("PQ-04-047_Day",Matching_Haplotypes_CSP_Molten_047$Day[Matching_Haplotypes_CSP_Molten_047$species == "human"])
+merge <- merge(Matching_Haplotypes_CSP_Molten_047, ClinicalData, by = "SampleID")
+merge$totalPC<-merge$ring_ul_all + merge$totalgct_ul
+merge$Perc_totalPC<- (merge$totalPC * merge$Percentage)/100
+
+cols <- unikn::usecol(c("goldenrod2", "indianred3", "rosybrown1", "palegreen3", "plum4", "dodgerblue"), n = 11)
+
+unique_haplotypes <- unique(merge$Haplotype)
+names(cols) <- unique_haplotypes 
+
+ordered_haplotypes <- merge %>%
+  filter(Day == 0) %>%
+  arrange(Percentage) %>%
+  pull(Haplotype)
+merge$Haplotype <- factor(merge$Haplotype, levels = unique(ordered_haplotypes))
+
+area_plot<-ggplot(merge, aes(x = Day, y = Percentage, fill = Haplotype)) +
+  facet_wrap(~species, scales = "free_y") + 
+  geom_area(position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  scale_x_continuous(breaks = c(0,2,7,21))+
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+#ggplot(merge, aes(x = Day, y = Perc_totalPC, fill = Haplotype)) +
+#facet_wrap(~species, scales = "free_y") + 
+#geom_area(position = "stack") +
+# scale_fill_viridis_d() +
+# labs(x = "Day", y = "Reads") +
+# theme_classic() +
+# theme(legend.position = "bottom") +
+# scale_y_sqrt()
+
+Matching_Haplotypes_CSP_Molten_047 <- Matching_Haplotypes_CSP_Molten_047 %>%
+  mutate(mosquito_id = gsub(".*_", "", SampleID))  
+
+bar_plot <- ggplot(Matching_Haplotypes_CSP_Molten_047[Matching_Haplotypes_CSP_Molten_047$species == "mosquito",], 
+                   aes(x = as.factor(Day), y = Percentage, fill = Haplotype)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Day", y = "Reads") +
+  scale_fill_manual(values = cols) +
+  theme_classic() +
+  theme(legend.position = "none") +
+  facet_wrap(~mosquito_id, scales = "free_x", strip.position = "bottom")
+
+
+combined_plot <- grid.arrange(bar_plot, area_plot, ncol=1)
+ggsave("PQ-04-047.pdf", combined_plot, width=10, height=10,limitsize = FALSE)
 
 #Check whether multiclonal samples have higher likelihood of causing multiclonal mosquito infections
 human_df <- FINAL_CSP_TRAP %>% filter(Species == "human")
@@ -963,6 +1408,7 @@ ggplot(Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$species=="h
   theme_classic()+
   theme(legend.position = "none")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+ggsave("Haplotype in infectious vs non-infectious individuals D0.pdf", width=6, height=5)
 
 #Individuals non-infectious at certain timepoint
 Matching_Haplotypes_CSP_Molten_infectious <- Matching_Haplotypes_CSP_Molten %>%
@@ -981,10 +1427,10 @@ ggplot(Matching_Haplotypes_CSP_Molten_infectious[Matching_Haplotypes_CSP_Molten_
   theme_classic()+
   theme(legend.position = "none")+
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+ggsave("Haplotype in infectious vs non-infectious individuals all timepoints.pdf", width=6, height=5)
 
-
-model <- glm(Infectious ~ Haplotype + totalgct_ul, data = Matching_Haplotypes_CSP_Molten_infectious, family = binomial())
-summary(model)
+#model <- glm(Infectious ~ Haplotype + totalgct_ul, data = Matching_Haplotypes_CSP_Molten_infectious, family = binomial())
+#summary(model)
 
 model <- logistf(Infectious ~ Haplotype + totalgct_ul, 
                  data = Matching_Haplotypes_CSP_Molten_infectious)
@@ -1010,3 +1456,14 @@ ggplot(df, aes(x=estimate, y=term)) +
   labs(title="Forest Plot", x="Effect Size", y="")+
   theme_classic()
 
+
+#To analyze if the likelihood that a certain haplotype is "matching" depends on the haplotype environment (other haplotypes present in the same SampleID) - logistic regression
+Matching_Haplotypes_CSP_Molten_infectious$IsMatching <- ifelse(Matching_Haplotypes_CSP_Molten_infectious$Comparison == "matching", 1, 0)
+wide_df <- dcast(Matching_Haplotypes_CSP_Molten_infectious, SampleID ~ Haplotype, value.var = "IsMatching", fun.aggregate = max)
+wide_df[wide_df == -Inf] <- NA
+
+# Fit a logistic regression model
+model <- glm(IsMatching ~ Hap1 + Hap2 + Hap3, data = wide_df, family = "binomial")
+
+# Print the summary of the model
+summary(model)
