@@ -3,13 +3,16 @@ library("HaplotypR")
 library("ShortRead")
 
 # Define output directory
-outputDir <- "/mnt/storage9/leen/MOI_ampliconseq/12_09_23_CSP-TRAP_0.005"
+outputDir <- "/mnt/storage9/leen/MOI_ampliconseq/21_11_23_CSP-TRAP_0.005"
 # Create output directory
 if(!dir.exists(outputDir))
   dir.create(outputDir, recursive=T)
 
 # Specify number of pools to analyse
 Poolnum <- 54
+
+# Specify the pools that have CSP/TRAP amplicons in them
+select <- "Oct22|Feb23|MAR23|APR23|AUG23|Aug23"
 
 # Specify mismatch options
 minMMrate <- 0.5
@@ -32,7 +35,7 @@ source("/mnt/storage9/leen/MOI_ampliconseq/scripts/createHaplotypeTable_ext.R")
 demultiplex <- function(pattern, outputDir, sampleNum) {
   # Set input file path
   primerFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/primerfiles/markerFile_CSP_TRAP.txt")
-  sampleFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/samplefiles/", "sampleFile_", pattern, ".txt")
+  sampleFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/samplefiles/CSP_TRAP/", "sampleFile_", pattern, ".txt")
   fnBarcodeF <- paste0("/mnt/storage9/leen/MOI_ampliconseq/barcodefiles/barcode_Fwd.fasta")
   fnBarcodeR <- paste0("/mnt/storage9/leen/MOI_ampliconseq/barcodefiles/barcode_Rev.fasta")
   
@@ -63,6 +66,7 @@ folder_path <- "/mnt/storage9/leen/MOI_ampliconseq/fastq/"
 
 # List all the files in the folder
 file_list <- list.files(folder_path, full.names = TRUE)
+file_list <- file_list[grep(select, file_list)]
 
 # Define a function to extract the sample name from the file name
 extract_sample_name <- function(file_name) {

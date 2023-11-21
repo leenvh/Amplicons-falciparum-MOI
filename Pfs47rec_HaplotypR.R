@@ -3,16 +3,16 @@ library("HaplotypR")
 library("ShortRead")
 
 # Define output directory
-outputDir <- "/mnt/storage9/leen/MOI_ampliconseq/21_11_23_Pfs47_0.005"
+outputDir <- "/mnt/storage9/leen/MOI_ampliconseq/21_11_23_Pfs47rec_0.005"
 # Create output directory
 if(!dir.exists(outputDir))
   dir.create(outputDir, recursive=T)
 
 # Specify number of pools to analyse
-Poolnum <- 14
+Poolnum <- 6
 
-# Specify the pools that have Pfs47 amplicons in them
-select <- "Pfs47CombinedMidguts|Aug23"
+# Specify the pools that have Pfs47rec amplicons in them
+select <- "Oct23"
 
 # Specify mismatch options
 minMMrate <- 0.5
@@ -33,8 +33,8 @@ source("/mnt/storage9/leen/MOI_ampliconseq/scripts/createHaplotypeTable_ext.R")
 # Define a function to perform demultiplexing
 demultiplex <- function(pattern, outputDir, sampleNum) {
   # Set input file path
-  primerFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/primerfiles/markerFile_Pfs47.txt")
-  sampleFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/samplefiles/Pfs47/", "sampleFile_", pattern, ".txt")
+  primerFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/primerfiles/markerFile_Pfs47rec.txt")
+  sampleFile <- paste0("/mnt/storage9/leen/MOI_ampliconseq/samplefiles/Pfs47rec/", "sampleFile_", pattern, ".txt")
   fnBarcodeF <- paste0("/mnt/storage9/leen/MOI_ampliconseq/barcodefiles/barcode_Fwd.fasta")
   fnBarcodeR <- paste0("/mnt/storage9/leen/MOI_ampliconseq/barcodefiles/barcode_Rev.fasta")
   
@@ -148,8 +148,8 @@ outProcFiles <- file.path(outputDir, "processedReads")
 dir.create(outProcFiles)
 
 # Trim options
-numNtF <- 221
-numNtR <- 221
+numNtF <- 220
+numNtR <- 220
 postfix <- sprintf("_bind%.0f_%.0f", numNtF, numNtR)
 
 # Adjust reference to trim options and save as fasta file
@@ -215,8 +215,8 @@ finalTab <- createFinalHaplotypTableExtended(
   snpList = snpLst, postfix = postfix, minHaplotypCoverage = minCov, minReplicate = minOccHap,
   detectability = detectionLimit, minSampleCoverage = minCovSample)
 
-pfs47_1_finalTab<-finalTab[["pfs47_1"]]
-pfs47_2_finalTab<-finalTab[["pfs47_2"]]
+pfs47rec1_finalTab<-finalTab[["pfs47rec_1"]]
+pfs47rec2_finalTab<-finalTab[["pfs47rec_2"]]
 
-write.table(pfs47_1_finalTab, file.path(outputDir, "pfs47_1_finalTab.txt"), sep="\t", row.names=F, quote=F)
-write.table(pfs47_2_finalTab, file.path(outputDir, "pfs47_2_finalTab.txt"), sep="\t", row.names=F, quote=F)
+write.table(pfs47rec1_finalTab, file.path(outputDir, "pfs47rec1_finalTab.txt"), sep="\t", row.names=F, quote=F)
+write.table(pfs47rec2_finalTab, file.path(outputDir, "pfs47rec2_finalTab.txt"), sep="\t", row.names=F, quote=F)
