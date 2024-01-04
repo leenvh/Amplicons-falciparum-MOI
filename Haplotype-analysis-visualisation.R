@@ -1,4 +1,4 @@
-library(dplyr)
+require(dplyr)
 library(tidyr)
 library(stringr)
 library(ggplot2)
@@ -965,7 +965,7 @@ p <- ggplot(Matching_Haplotypes_TRAP_Molten, aes(x=Day_Species, y=Percentage, fi
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 ggsave("TRAP_overview.pdf", p, width=40, height=50,limitsize = FALSE)
-
+write.csv(Matching_Haplotypes_TRAP_Molten,"Matching_Haplotypes_TRAP_Molten.csv")
 
 # Overview of all haplotypes
 Matching_Haplotypes_CSP_Molten <- Matching_Haplotypes_CSP_Molten %>%
@@ -1022,7 +1022,7 @@ p <- ggplot(Matching_Haplotypes_CSP_Molten, aes(x=Day_Species, y=Percentage, fil
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
 
 ggsave("CSP_overview.pdf", p, width=40, height=50,limitsize = FALSE)
-
+write.csv(Matching_Haplotypes_CSP_Molten,"Matching_Haplotypes_CSP_Molten.csv")
 
 #Make nice plot for CSP PQ-04-043
 Matching_Haplotypes_CSP_Molten_043<-Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$Individual=="PQ-04-043",]
@@ -1467,3 +1467,4 @@ model <- glm(IsMatching ~ Hap1 + Hap2 + Hap3, data = wide_df, family = "binomial
 
 # Print the summary of the model
 summary(model)
+
