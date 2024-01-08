@@ -5,6 +5,9 @@ library(reshape2)
 library(patchwork)
 library(gridExtra)
 library(stringr)
+library(cowplot)
+library(future.apply)
+library(furrr)
 
 
 setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Collate")
@@ -23,18 +26,16 @@ human_TRAP <- TRAP %>%
   filter(species == "human") %>%
   mutate(Percentage = as.numeric(Percentage),
          Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)))
+human_CSP <- CSP %>% 
+  filter(species == "human") %>%
+  mutate(Percentage = as.numeric(Percentage),
+         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)))
 mosquito_TRAP <- TRAP %>% filter(species == "mosquito")%>%
   mutate(Percentage = as.numeric(Percentage),
          Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)))
-
-write.csv(human_TRAP, "human_TRAP.csv")
-write.csv(mosquito_TRAP, "mosquito_TRAP.csv")
-
-# Function to expand dataset to include all days
-expand_dataset <- function(df, all_days) {
-  df %>% 
-    complete(Day = all_days, fill = list(Percentage = 0))
-}
+mosquito_CSP <- CSP %>% filter(species == "mosquito")%>%
+  mutate(Percentage = as.numeric(Percentage),
+         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)))
 
 
 # Function to create stacked plot
@@ -88,20 +89,15 @@ create_stacked_plot <- function(df, day, is_mosquito = FALSE) {
 }
 
 
-# Identify all unique days
-all_days <- unique(c(human_TRAP$Day, mosquito_TRAP$Day))
 
-# Expand both datasets to include all days
-expanded_human_TRAP <- expand_dataset(human_TRAP, all_days)
-expanded_mosquito_TRAP <- expand_dataset(mosquito_TRAP, all_days)
 
 # Define a function to create a combined plot for each day
 create_combined_day_plot <- function(human_df, mosquito_df, day) {
   # Create the human plot for the day
-  human_plot <- create_stacked_plot(human_df %>% filter(Day == day))
+  human_plot <- create_stacked_plot(human_df %>% filter(Day == day), day, is_mosquito = FALSE)
   
   # Create the mosquito plot for the day
-  mosquito_plot <- create_stacked_plot(mosquito_df %>% filter(Day == day))
+  mosquito_plot <- create_stacked_plot(mosquito_df %>% filter(Day == day), day, is_mosquito = TRUE)
   
   # Combine the mosquito and human plots for the day
   combined_day_plot <- mosquito_plot / human_plot
@@ -109,98 +105,73 @@ create_combined_day_plot <- function(human_df, mosquito_df, day) {
   return(combined_day_plot)
 }
 
-# Define the order of days
-ordered_days <- c(0, 2, 7, 14, 21, 28,35)
 
-# Loop through each individual and create combined plots
-combined_TRAP_plots <- list()
-for (individual in unique(expanded_human_TRAP$Individual)) {
+# Function to expand dataset to include all days
+expand_dataset <- function(df, all_days) {
+  df %>% 
+    complete(Day = all_days, fill = list(Percentage = 0))
+}
+
+
+#Function to Process Individual
+process_individual <- function(human_df, mosquito_df, ordered_days, individual) {
   combined_plots_per_day <- list()
   
   for (day in ordered_days) {
-    human_data_for_day <- expanded_human_TRAP %>% filter(Individual == individual, Day == day)
-    mosquito_data_for_day <- expanded_mosquito_TRAP %>% filter(Individual == individual, Day == day)
+    human_data_for_day <- human_df %>% filter(Individual == individual, Day == day)
+    mosquito_data_for_day <- mosquito_df %>% filter(Individual == individual, Day == day)
     
-    # Create the human plot for the day or a blank plot with the day label if no data, or a blank plot with day label and y axis if no data at day0
-    human_plot <- if (nrow(human_data_for_day) > 0) {
-      create_stacked_plot(human_data_for_day, day)
-    } else {
-      blank_plot <- ggplot(data.frame(SampleID = paste("Day", day)), aes(x = SampleID)) +
-        geom_blank() +
-        scale_x_discrete(limits = paste("Day", day)) +
-        labs(x = "") +
-        theme_minimal() +
-        theme(
-          axis.text.x = element_text(size = 8),
-          axis.text.y = element_text(size = 8),
-          axis.ticks.y = element_line(),
-          axis.title.y = element_text(),
-          panel.grid = element_blank(),
-          plot.margin = margin(5.5, 5.5, 5.5, 5.5),
-          axis.line.x = element_line(color="black"),
-          axis.ticks.x = element_line(color="black")
-        )
-      
-      # Add y-axis label for Day 0 only
-      if (day == 0) {
-        blank_plot <- blank_plot + labs(y = "Haplotype %") + 
-          scale_y_continuous(breaks = c(0, 25, 50, 75, 100), limits = c(0, 100)) +
-          theme(
-            axis.line.y = element_line(color="black"),
-            axis.ticks.y = element_line(color="black"),
-            axis.text.y = element_text(size = 8),
-          )
-      } else {
-        blank_plot <- blank_plot + theme(axis.title.y = element_blank())
-      }
-      
-      blank_plot
-    }
-    
-    # Create the mosquito plot for the day or a blank plot if no data
-    mosquito_plot <- if (nrow(mosquito_data_for_day) > 0) {
-      create_stacked_plot(mosquito_data_for_day, day, is_mosquito = TRUE)
-    } else {
-      blank_plot_mosq <- ggplot() +
-        theme_classic() + 
-        theme(
-          axis.text.x = element_blank(),
-          axis.text.y = element_blank(),
-          axis.ticks.y = element_blank(),
-          axis.title.y = element_blank(),
-          axis.title.x = element_blank(),
-          axis.line.y = element_blank(),
-          axis.line.x = element_blank(),
-          panel.grid = element_blank()
-        ) 
-    # Add y-axis label for Day 0 only
-      if (day == 0) {
-        blank_plot_mosq <- blank_plot_mosq + labs(y = "Haplotype %") + 
-          scale_y_continuous(breaks = c(0, 25, 50, 75, 100), limits = c(0, 100)) +
-          theme(
-            axis.line.y = element_line(color="black"),
-            axis.ticks.y = element_line(color="black"),
-            axis.text.y = element_text(size = 8),
-          )
-      } else {
-        blank_plot_mosq <- blank_plot_mosq + theme(axis.title.y = element_blank())
-      }
-      
-      blank_plot_mosq
-    }
-    
-    # Combine the mosquito and human plots for the day if mosquito data is present
-    combined_day_plot <- if (!is.null(mosquito_plot)) {
-      mosquito_plot / human_plot
-    } else {
-      human_plot
-    }
-    
+    # Call the create_combined_day_plot function
+    combined_day_plot <- create_combined_day_plot(human_data_for_day, mosquito_data_for_day, day)
     combined_plots_per_day[[as.character(day)]] <- combined_day_plot
   }
   
   # Remove NULL values from the list
   combined_plots_per_day <- combined_plots_per_day[!sapply(combined_plots_per_day, is.null)]
+  
+  # Combine all daily plots into a single plot for the individual
+  combined_plot <- wrap_plots(combined_plots_per_day, nrow = 1)
+  print(paste("Processing individual:", individual))
+  return(combined_plot)
+}
+
+#Function to Process all Individual
+process_all_individuals <- function(human_data, mosquito_data, ordered_days) {
+  all_individuals <- unique(c(human_data$Individual, mosquito_data$Individual))
+  all_days <- unique(c(human_data$Day, mosquito_data$Day))
+  
+  # Expand both datasets to include all days
+  expanded_human <- expand_dataset(human_data, all_days)
+  expanded_mosquito <- expand_dataset(mosquito_data, all_days)
+  
+  combined_plots <- list()
+  for (individual in all_individuals) {
+    combined_plots[[individual]] <- process_individual(expanded_human, expanded_mosquito, ordered_days, individual)
+  }
+  
+  return(combined_plots)
+}
+
+
+#Executing the Functions for TRAP and CSP Data
+# Assuming you have loaded your TRAP and CSP data into human_TRAP, mosquito_TRAP, human_CSP, and mosquito_CSP
+ordered_days <- c(0, 2, 7, 14, 21, 28, 35)
+
+# Process TRAP data
+combined_TRAP_plots <- process_all_individuals(human_TRAP, mosquito_TRAP, ordered_days)
+print(combined_TRAP_plots[["PQ-04-018"]])
+# Process CSP data
+combined_CSP_plots <- process_all_individuals(human_CSP, mosquito_CSP, ordered_days)
+print(combined_CSP_plots[["PQ-04-003"]])
+
+
+# Set up parallel processing
+plan(multisession, workers = 4)  # Choose the number of workers based on your CPU
+
+# Function to process individual plots
+process_individual_plots <- function(individual) {
+  trap_plot <- combined_TRAP_plots[[individual]]
+  csp_plot <- combined_CSP_plots[[individual]]
   
   # Create an annotation plot for Mosquito and Human labels
   annotation_plot <- ggplot() +
@@ -209,31 +180,25 @@ for (individual in unique(expanded_human_TRAP$Individual)) {
     theme_void() +
     theme(plot.margin = margin(0, 0, 0, 0))
   
-  # Combine all daily plots into a single plot for the individual
-  if (length(combined_plots_per_day) > 0) {
-    combined_TRAP_plot <- wrap_plots(list(annotation_plot, wrap_plots(combined_plots_per_day, nrow = 1)), ncol = 2, widths = c(0.1, 1)) +
-      plot_annotation(title = individual,theme = theme(
-                        plot.title = element_text(hjust = 0.5, size = 14)))
-    
-    combined_TRAP_plots[[individual]] <- combined_TRAP_plot
-  } else {
-    # If there are no plots, create a placeholder for the individual
-    combined_TRAP_plots[[individual]] <- ggplot() + theme_void() +
-      labs(title = paste("No data for individual", individual))
-  }
+  # Combine the TRAP and CSP plots with equal widths
+  combined_plot <- annotation_plot  + csp_plot + trap_plot +
+    plot_layout(ncol = 3, widths = c(1,8,8))
+  
+  combined_plot_annotated <- ggdraw() +
+    draw_plot(combined_plot) +
+    draw_label(individual, size = 20, fontface = 'bold',
+               x = 0.5, y = 1, hjust = 0.5, vjust = 1)+
+    draw_label("TRAP", size = 15, x = 0.1, y = 1, hjust = 0.1, vjust = 1.5)+
+    draw_label("CSP", size = 15, x = 0.58, y = 1, hjust = 0.58, vjust = 1.5)
+  
+  return(combined_plot_annotated)
 }
 
+# List of individuals
+individuals <- names(combined_TRAP_plots)
 
-print(combined_TRAP_plots[["PQ-04-018"]])
-print(combined_TRAP_plots[["PQ-04-035"]])
+# Process all individuals in parallel
+combined_plots_list <- future_map(individuals, process_individual_plots)
+names(combined_plots_list) <- individuals
 
-
-# Determine the layout of the grid
-number_of_individuals <- length(combined_TRAP_plots)
-number_of_columns <- 5 # or however many columns you want
-number_of_rows <- ceiling(number_of_individuals / number_of_columns)
-
-# Create the large plot
-large_plot <- wrap_plots(combined_TRAP_plots, ncol = number_of_columns, nrow = number_of_rows)
-ggsave("large_combined_plot_TRAP.pdf", large_plot, width = 49, height = 49, units = "in")
-
+print(combined_plots_list[["PQ-04-058"]])
