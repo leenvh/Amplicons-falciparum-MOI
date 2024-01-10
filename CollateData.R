@@ -196,12 +196,12 @@ process_all_individuals <- function(human_data, mosquito_data, ordered_days,colo
 create_drugres_plot <- function(individual, drugres_data) {
   # Filter the data for the specific individual
   individual_data <- drugres_data %>% filter(Individual == individual)
-  # Extract the string after the last underscore for MosqID and add 'Mosquito'
-  df$ShortMosqID <- paste0("Mosquito",str_extract(individual_data$mosqid, "(?<=_)[^_]+$"))
 
   
   # Check if there is data for the individual
   if (nrow(individual_data) > 0) {
+    # Extract the string after the last underscore for MosqID and add 'Mosquito'
+    individual_data$ShortMosqID <- paste0("Mosquito",str_extract(individual_data$mosqid, "(?<=_)[^_]+$"))
     # Create the DrugRes plot
     ggplot(individual_data, aes(x = as.factor(protein_change), y = freq_diff * 100 )) +
       geom_bar(stat = "identity", position = "dodge", width = 0.7, color = "black", fill = "black") +
@@ -317,7 +317,7 @@ for (individual in names(combined_plots_list)) {
   file_name <- paste0(individual, "_combined_plots.pdf")
   
   # Save the plot to a PDF file
-  ggsave(file_name, plot, device = "pdf", width = 11, height = 8.5)  # Adjust 'width' and 'height' as needed
+  ggsave(file_name, plot, device = "pdf", width = 13, height = 8.5)  # Adjust 'width' and 'height' as needed
 }
 
 
