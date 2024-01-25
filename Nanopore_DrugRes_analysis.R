@@ -3,6 +3,8 @@ require(plyr)
 require(scales)
 require(data.table)
 require(ggplot2)
+library("ggpattern")
+
 
 setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION")
 Variants_Exp51<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/variants_Exp51.csv")
@@ -25,35 +27,98 @@ Variants_Exp52$uniqueid<-sub("^([^_]+_[^_]+_)(.*)", "\\2", Variants_Exp52$sample
 
 
 #Overall frequency of SNPs
-
-length(unique(Variants_Exp52$sample_id)) #48
-#Calculate percentages
-Variants_Exp52_percent <- Variants_Exp52 %>%
+Variants_Exp52 <- Variants_Exp52 %>%
   group_by(genome_pos, gene, protein_change) %>%
-  dplyr::summarise(count = n()) %>%
-  mutate(percentage = ((count / 48) * 100),
-    species="human")
-Variants_Exp52_percent <- Variants_Exp52_percent %>%
-filter(!grepl("fs", protein_change))
+  mutate(species="human",
+         mosqid=NA)
+Variants_Exp52 <- Variants_Exp52 %>%
+  filter(!grepl("fs", protein_change))
+Variants_Exp52<-Variants_Exp52[,c(1:10,13,11:12)]
 
-length(unique(Variants_Exp51$sample_id)) #73
-#Calculate percentages
-Variants_Exp51_percent <- Variants_Exp51 %>%
+Variants_Exp51 <- Variants_Exp51 %>%
   group_by(genome_pos, gene, protein_change) %>%
-  dplyr::summarise(count = n()) %>%
-  mutate(percentage = ((count / 73) * 100),
-  species="mosquito")
-Variants_Exp51_percent <- Variants_Exp51_percent %>%
-filter(!grepl("fs", protein_change))
+  mutate(species="mosquito")
+Variants_Exp51 <- Variants_Exp51 %>%
+  filter(!grepl("fs", protein_change))
 
-both<-rbind(Variants_Exp51_percent,Variants_Exp52_percent)
+both<-rbind(Variants_Exp51,Variants_Exp52)
 
-ggplot(both, aes(x = as.factor(protein_change), y = percentage, fill = as.factor(species))) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
-  labs(x = "Protein change", y = "Percentage of Total", fill = "Gene") +
-  facet_wrap(~gene,scales="free_x")+
-  theme_classic()
-ggsave("Overall_frequencies.pdf",width=15, height=10)
+# Create a complete list of combinations of sample_id and protein_change
+complete_combinations <- expand.grid(sample_id = unique(both$sample_id), protein_change = unique(both$protein_change))
+
+# Merge with original data
+merged_data <- left_join(complete_combinations, both, by = c("sample_id", "protein_change"))
+
+# Step 3: Replace NA in freq with zero
+merged_data$freq[is.na(merged_data$freq)] <- 0
+
+gene_protein_mapping <- merged_data %>%
+  select(protein_change, gene) %>%
+  distinct() %>%
+  na.omit()
+
+merged_data <- merged_data %>%
+  left_join(gene_protein_mapping, by = "protein_change", suffix = c("", "_ref"))
+
+merged_data <- merged_data %>%
+  mutate(gene = ifelse(is.na(gene), gene_ref, gene)) %>%
+  select(-gene_ref)
+
+sampleid_species_mapping <- merged_data %>%
+  select(sample_id, species) %>%
+  distinct() %>%
+  na.omit()
+
+merged_data <- merged_data %>%
+  left_join(sampleid_species_mapping, by = "sample_id", suffix = c("", "_ref"))
+
+merged_data <- merged_data %>%
+  mutate(species = ifelse(is.na(species), species_ref, species)) %>%
+  select(-species_ref)
+
+merged_data$protein_change <- factor(merged_data$protein_change,levels = c("p.Lys76Thr","p.Tyr184Phe","p.Gly102Gly","p.Asn86Tyr","p.Asn51Ile","p.Cys59Arg","p.Ser108Asn","p.Ile431Val","p.Ser436Ala","p.Ser436Phe","p.Ala437Gly","p.Lys540Glu","p.Ala581Gly","p.Ala613Ser"))
+merged_data <- merged_data %>%
+  mutate(protein_change = recode(protein_change,
+                                 "p.Lys76Thr" = "CRT-Lys76Thr",
+                                 "p.Tyr184Phe" = "MDR1-Tyr184Phe",
+                                 "p.Gly102Gly" = "MDR1-Gly102Gly",
+                                 "p.Asn86Tyr" = "MDR1-Asn86Tyr",
+                                 "p.Asn51Ile" = "DHFR-Asn51Ile",
+                                 "p.Cys59Arg" = "DHFR-Cys59Arg",
+                                 "p.Ser108Asn" = "DHFR-Ser108Asn",
+                                 "p.Ile431Val" = "DHPS-Ile431Val",
+                                 "p.Ser436Ala" = "DHPS-Ser436Ala",
+                                 "p.Ser436Phe" = "DHPS-Ser436Phe",
+                                 "p.Ala437Gly" = "DHPS-Ala437Gly",
+                                 "p.Lys540Glu" = "DHPS-Lys540Glu",
+                                 "p.Ala581Gly" = "DHPS-Ala581Gly",
+                                 "p.Ala613Ser" = "DHPS-Ala613Ser"))
+
+summary_data <- merged_data %>%
+  group_by(protein_change,gene,species) %>%
+  summarise(
+    mean_freq = mean(freq, na.rm = TRUE),
+    se = sd(freq, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )
+
+
+mycols <- c("#8dd3c6", "#f98073", "#fccde5", "#80b0d3")
+mycols2 <- c("#4c9184", "#a8392d", "#bf6b96", "#3373a1")
+ggplot(summary_data, aes(x = as.factor(protein_change), y = mean_freq, fill = gene, pattern = species,color =gene)) +
+  geom_bar_pattern(aes(pattern_fill=gene,pattern_color=gene),position = "dodge", stat = "identity", pattern_angle = 45, pattern_density = 0.1, pattern_spacing = 0.025, pattern_key_scale_factor = 0.6) +
+  geom_errorbar(aes(ymin = mean_freq - se, ymax = mean_freq + se,color = gene), 
+                width = 0.2, position = position_dodge(0.9)) +
+  labs(x = "Protein change", y = "Overall frequency in entire sample set", fill = "Gene") +
+  scale_fill_manual(values = mycols) +  
+  scale_pattern_manual(values = c("none", "stripe"),labels=c("Human", "Mosquito")) +
+  scale_color_manual(values = mycols2) +
+  scale_pattern_fill_manual(values = mycols2) +
+  scale_pattern_color_manual(values = mycols2)+
+  theme_light()+
+  scale_y_continuous(breaks=c(0,0.2,0.4,0.6,0.8,1),limits=c(0,1))
+ggsave("Overall_frequencies_bar.pdf",width=20, height=8)
+
 
 
 #Fisher exact test
@@ -161,15 +226,28 @@ merged_data$freq_diff <- as.numeric(merged_data$freq_human - merged_data$freq_mo
 # Select necessary columns for the output dataframe
 output_df <- merged_data[c('uniqueid', 'genome_pos', 'freq_diff','protein_change','gene','mosqid')]
 
-ggplot(output_df, aes(x = as.factor(protein_change), y = freq_diff*100,fill=as.factor(gene))) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.7) +
-  labs(x = "Genome Position", y = "Difference in frequency (human-mosquito)", fill = "Gene") +
-  scale_y_continuous(limits=c(-100,100))+
-  facet_grid(mosqid~uniqueid,scales="free_x")+
-  theme_classic()+
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
+# Calculate mean and standard error for each protein_change
+protein_summary <- output_df %>%
+  group_by(protein_change,gene) %>%
+  summarise(
+    mean_freq_diff = mean(freq_diff, na.rm = TRUE),
+    se = sd(freq_diff, na.rm = TRUE) / sqrt(n()),
+    count = n()
+  )
 
+# Create the bar plot with error bars
+mycols <- c("#8dd3c6", "#f98073", "#fccde5", "#80b0d3")
+ggplot(protein_summary, aes(x = protein_change, y = mean_freq_diff,fill=gene)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  geom_errorbar(aes(ymin = mean_freq_diff - se, ymax = mean_freq_diff + se), width = .2, position = position_dodge(.9)) +
+  geom_text(aes(label = count, y = 0.05),
+            vjust = 0, position = position_dodge(0.9)) +
+  scale_fill_manual(values=mycols)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "Protein Change", y = "Mean Freq Diff", title = "Mean Freq Diff by Protein Change with Observation Count")+
+  theme_light()
+ggsave("Pairwise_comparison.pdf",width=15, height=10)
 
 
 # Create a mapping of uniqueid to mosqid

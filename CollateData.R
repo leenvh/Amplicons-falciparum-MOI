@@ -82,6 +82,25 @@ create_stacked_plot <- function(df, day, is_mosquito = FALSE,colors) {
   # Extract the string after the last underscore for SampleID
   df$ShortSampleID <- str_extract(df$SampleID, "(?<=_)[^_]+$")
   
+  # For day 2 mosquito data, assign symbols to each SampleID
+  if (is_mosquito && day == 2) {
+    symbols <- c("*", "+", "#")
+    sampleID_symbols <- df %>%
+      distinct(SampleID) %>%
+      mutate(Symbol = symbols[seq_len(n())])
+    
+    df <- df %>%
+      left_join(sampleID_symbols, by = "SampleID") %>%
+      mutate(ShortSampleID = ifelse(!is.na(Symbol),
+                                    Symbol, ShortSampleID)) 
+  }
+  
+  # Check if dataframe is empty, particularly for mosquito data
+  if(is_mosquito && nrow(df) == 0) {
+    # Return an empty plot
+    return(ggplot() + theme_void() + theme(axis.text.x = element_text(angle = 90, hjust = 0.5)))
+  }
+  
   # Determine the width of the bars based on whether it's a mosquito plot
   # and how many mosquito samples there are for that day
   bar_width <- if (is_mosquito) {
@@ -93,6 +112,7 @@ create_stacked_plot <- function(df, day, is_mosquito = FALSE,colors) {
   } else {
     1  # Full width for human samples
   }
+  
   
   # Create the plot using the shortened SampleID
   plot <- ggplot(df, aes(x = ShortSampleID, y = Percentage, fill = Haplotype)) +
@@ -116,34 +136,46 @@ create_stacked_plot <- function(df, day, is_mosquito = FALSE,colors) {
       labs(y = "Haplotype %")
   }
   
-  # Remove the x-axis line and annotations for mosquito plots
+  # Adjust x-axis text for mosquito plots based on day
   if (is_mosquito) {
-    plot <- plot + 
-      theme(axis.text.x = element_blank(),
-            axis.ticks.x = element_blank(),
-            axis.title.x = element_blank(),
-            axis.line.x = element_blank())
+    if (day == 2) {
+      plot <- plot + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 1))
+    } else {
+      plot <- plot + theme(axis.text.x = element_blank(),
+                           axis.ticks.x = element_blank(),
+                           axis.title.x = element_blank(),
+                           axis.line.x = element_blank())
+    }
   }
-  
   return(plot)
 }
 
 
 
-
 # Define a function to create a combined plot for each day
-create_combined_day_plot <- function(human_df, mosquito_df, day,colors) {
+create_combined_day_plot <- function(human_df, mosquito_df, day, colors) {
   # Create the human plot for the day
-  human_plot <- create_stacked_plot(human_df %>% filter(Day == day), day, is_mosquito = FALSE,colors = colors)
+  human_plot <- create_stacked_plot(human_df %>% filter(Day == day), day, is_mosquito = FALSE, colors = colors)
   
   # Create the mosquito plot for the day
-  mosquito_plot <- create_stacked_plot(mosquito_df %>% filter(Day == day), day, is_mosquito = TRUE,colors = colors)
+  mosquito_plot <- create_stacked_plot(mosquito_df %>% filter(Day == day), day, is_mosquito = TRUE, colors = colors)
+  
+  # Create an empty plot for spacer
+  spacer_plot <- ggplot() + theme_void()
   
   # Combine the mosquito and human plots for the day
-  combined_day_plot <- mosquito_plot / human_plot
+  if (day != 2) {
+    # Include a spacer for days other than day 2
+    combined_day_plot <- mosquito_plot + spacer_plot + human_plot +
+      plot_layout(heights = c(1, 0.085, 1)) # Adjust the middle value for spacer size
+  } else {
+    # No spacer for day 2
+    combined_day_plot <- mosquito_plot / human_plot
+  }
   
   return(combined_day_plot)
 }
+
 
 
 # Function to expand dataset to include all days
@@ -196,25 +228,37 @@ process_all_individuals <- function(human_data, mosquito_data, ordered_days,colo
 create_drugres_plot <- function(individual, drugres_data) {
   # Filter the data for the specific individual
   individual_data <- drugres_data %>% filter(Individual == individual)
-
+  
+  # Create an empty plot for spacer
+  spacer_plot <- ggplot() + theme_void()
   
   # Check if there is data for the individual
   if (nrow(individual_data) > 0) {
-    # Extract the string after the last underscore for MosqID and add 'Mosquito'
-    individual_data$ShortMosqID <- paste0("Mosquito",str_extract(individual_data$mosqid, "(?<=_)[^_]+$"))
-    # Create the DrugRes plot
-    ggplot(individual_data, aes(x = as.factor(protein_change), y = freq_diff * 100 )) +
+    # Get unique mosqid per individual and assign symbols
+    symbols <- c("*", "+", "#")
+    mosqid_symbols <- individual_data %>%
+      distinct(mosqid) %>%
+      mutate(ShortMosqID = paste0("Mosquito ",symbols[seq_len(n())]))
+    
+    # Join back to original data
+    individual_data <- individual_data %>%
+      left_join(mosqid_symbols, by = "mosqid")
+    
+    # Stack the DrugRes plot with a spacer plot below
+    combined_plot <- ggplot(individual_data, aes(x = as.factor(protein_change), y = freq_diff * 100)) +
       geom_bar(stat = "identity", position = "dodge", width = 0.7, color = "black", fill = "black") +
       labs(x = "Genome Position", y = "Difference in frequency (human-mosquito)") +
       scale_y_continuous(limits = c(-100, 100)) +
       facet_wrap(~ShortMosqID, scales = "free_x") +
       theme_classic() +
-      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
   } else {
     # Return an empty plot if there is no data
-    ggplot() + theme_void() +
-      labs(title = paste("No DrugRes data for", individual))
+    combined_plot <- ggplot() + theme_void() +
+      labs(title = paste("No drug resistance data for", individual))
   }
+  
+  return(combined_plot)
 }
 
 #Function to create total gct plot
@@ -224,7 +268,8 @@ create_gct_plot <- function(individual, clinical_data) {
   ggplot(individual_data, aes(x = studyvisit, y = totalgct_ul, group = Individual)) +
       geom_line() +
       geom_point() +
-      labs(x = "Study Visit", y = "Total GCT (ul)") +
+      scale_x_continuous(breaks = c(0, 2, 7, 14, 21, 28, 35)) +
+      labs(x = "Study Visit", y = "Total GCT (gametocytes/µl)") +
       theme_classic()
 }
 
@@ -235,7 +280,8 @@ create_ring_plot <- function(individual, clinical_data) {
   ggplot(individual_data, aes(x = studyvisit, y = ring_ul_all, group = Individual)) +
     geom_line() +
     geom_point() +
-    labs(x = "Study Visit", y = "Ring Parasitaemia (ul)") +
+    scale_x_continuous(breaks = c(0, 2, 7, 14, 21, 28, 35)) +
+    labs(x = "Study Visit", y = "Ring Parasitaemia (rings/µl)") +
     theme_classic()
 }
 
@@ -276,10 +322,8 @@ process_individual_plots <- function(individual) {
   ring_plot <- create_ring_plot(individual, ClinicalData_LinePlots)
   mosq_plot <- create_mosq_pos_plot(individual, ClinicalData_BarPlot)
   
-  # Create an annotation plot for Mosquito and Human labels
+  # Create an empty plot for annotation with Mosquito and Human labels
   annotation_plot <- ggplot() +
-    annotate("text", x = 0, y = 100, label = "Mosquito", vjust = -5, size = 5) +
-    annotate("text", x = 0, y = 100, label = "Human", vjust = 5, size = 5) +
     theme_void() +
     theme(plot.margin = margin(0, 0, 0, 0))
   
@@ -290,14 +334,20 @@ process_individual_plots <- function(individual) {
   
   # Combine the TRAP and CSP plots with equal widths
   combined_plot <- annotation_plot  + csp_plot + trap_plot + drugres_plot + empty_plot + gct_plot + ring_plot + mosq_plot+
-    plot_layout(ncol = 4, nrow = 2, widths = c(2,8,8,8))
+    plot_layout(ncol = 4, nrow = 2, widths = c(2,8,8,8), heights = c(12,7))
   
   combined_plot_annotated <- ggdraw() +
     draw_plot(combined_plot) +
-    draw_label(individual, size = 20, fontface = 'bold',
-               x = 0.5, y = 1, hjust = 0.5, vjust = 1)+
-    draw_label("CSP", size = 15, x = 0.1, y = 1, hjust = 0.1, vjust = 1.5)+
-    draw_label("TRAP", size = 15, x = 0.4, y = 1, hjust = 0.4, vjust = 1.5)
+    draw_label(individual, size = 20, fontface = 'bold', x = 0.5, y = 1.0201, hjust = 0.5, vjust = 1)+
+    draw_label("Mosquito", size = 15, x = 0, y = 0.8, hjust = 0.1)+
+    draw_label("Human", size = 15, x = 0, y = 0.5, hjust = 0.1)+
+    draw_label("CSP haplotypes", size = 15, x = 0.1, y = 1, hjust = 0.1, vjust = 1.5)+
+    draw_label("TRAP haplotypes", size = 15, x = 0.45, y = 1, hjust = 0.4, vjust = 1.5)+
+    draw_label("Day 2 - Drug resistance markers", size = 15, x = 0.9, y = 1.015, hjust = 0.9, vjust = 1.5)+
+    draw_label("Gametocytaemia", size = 15, x = 0.1, y = 0.398, hjust = 0.1, vjust = 1.5)+
+    draw_label("Asexual parasitaemia", size = 15, x = 0.45, y = 0.398, hjust = 0.5, vjust = 1.5)+
+    draw_label("Number of infected mosquitoes", size = 15, x = 0.9, y = 0.4, hjust = 0.9, vjust =  1.5)+
+    theme(plot.margin = margin(1, 1, 1, 1, "cm")) 
   
   return(combined_plot_annotated)
 }
@@ -308,7 +358,9 @@ individuals <- names(combined_TRAP_plots)
 # Process all individuals in parallel
 combined_plots_list <- future_map(individuals, process_individual_plots)
 names(combined_plots_list) <- individuals
-print(combined_plots_list[["PQ-04-010"]])
+print(combined_plots_list[["PQ-04-060"]])
+print(combined_plots_list[["PQ-04-063"]])
+print(combined_plots_list[["PQ-04-002"]])
 
 # Save plots per individual as pdf files
 # Loop through the list of plots
@@ -317,7 +369,7 @@ for (individual in names(combined_plots_list)) {
   file_name <- paste0(individual, "_combined_plots.pdf")
   
   # Save the plot to a PDF file
-  ggsave(file_name, plot, device = "pdf", width = 13, height = 8.5)  # Adjust 'width' and 'height' as needed
+  ggsave(file_name, plot, device = "pdf", width = 17, height = 12)  # Adjust 'width' and 'height' as needed
 }
 
 
