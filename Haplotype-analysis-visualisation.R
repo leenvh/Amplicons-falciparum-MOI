@@ -1,3 +1,10 @@
+---
+title: "_Plasmodium falciparum_ transmissibility in asymptomatic gametocyte carriers in Mali "
+author: "Leen Vanheer"
+
+---
+  
+#Load libraries
 require(dplyr)
 library(tidyr)
 library(stringr)
@@ -13,75 +20,16 @@ library(reshape2)
 library(ggrepel)   
 library(broom)
 
+# set plotting theme
+theme_set(theme_bw() + 
+            theme(text = element_text(size = 15),
+                  strip.background = element_rect(fill = 'white', color = 'white')))
 
-#Set working directory and convert .txt files to .csv files
-setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis")
-filelist = list.files(pattern = ".txt")
-for (i in 1:length(filelist)){
-  input<-filelist[i]
-  output <- paste0(gsub("\\.txt$", "", input), ".csv")
-  print(paste("Processing the file:", input))
-  data = read.delim(input, header = TRUE)   
-  write.table(data, file=output, sep=",", col.names=TRUE, row.names=FALSE)
-}
+# set seed for reproducibility
+set.seed(0)
 
-#QC to check that replicates are similar
-trap_counts <- TRAP_raw %>%
-  filter(grepl("^trap-", Haplotype)) %>%
-  group_by(SampleID) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  separate(SampleID, into = c("IndividualID", "Rep"), sep = "_Rep") %>%
-  mutate(Rep = paste0("Rep", Rep)) %>%
-  pivot_wider(names_from = Rep, values_from = Count, values_fill = list(Count = 0)) %>%
-  mutate(Marker = "TRAP")
-
-# Process CSP data (similar to TRAP, adjust the grepl pattern and mutate(Source = "CSP"))
-csp_counts <- CSP_raw %>%
-  filter(grepl("^csp-", Haplotype)) %>%
-  group_by(SampleID) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
-  separate(SampleID, into = c("IndividualID", "Rep"), sep = "_Rep") %>%
-  mutate(Rep = paste0("Rep", Rep)) %>%
-  pivot_wider(names_from = Rep, values_from = Count, values_fill = list(Count = 0)) %>%
-  mutate(Marker = "CSP")
-
-# Combine TRAP and CSP data
-combined_counts <- bind_rows(trap_counts, csp_counts)
-
-# Plotting the combined data
-ggplot(combined_counts, aes(x=Rep1, y=Rep2, color=Marker)) + 
-  geom_jitter(alpha=0.5) +
-  theme_classic() +
-  xlab("Rep1 MOI") +
-  ylab("Rep2 MOI") +
-  xlim(0, 10) +
-  ylim(0, 10)+
-  geom_smooth(method=lm) +
-  ggtitle("Correlation between replicates MOI") +
-  scale_color_manual(values = c("TRAP" = "#4C67BD", "CSP" = "#D90368"))
-ggsave("Correlation_Replicates.pdf", width=6, height=5)
-
-cor.test(combined_counts$Rep1[combined_counts$Source=="TRAP"], combined_counts$Rep2[combined_counts$Source=="TRAP"], method = c("pearson")) #0.8672038 
-cor.test(combined_counts$Rep1[combined_counts$Source=="CSP"], combined_counts$Rep2[combined_counts$Source=="CSP"], method = c("pearson")) #0.8422626 
-
-
-#heatmap
-ggplot(combined_counts, aes(x = Rep1, y = Rep2)) +
-  geom_tile(stat = "bin_2d", aes(fill = ..count..), bins = 10) +  # Adjust 'bins' as needed
-  scale_fill_gradientn(colours = c("orange", "#D90368", "blue","green"),  # Add more colors as needed
-                       values = scales::rescale(c(0, 0.3, 0.6, 1)),  # Adjust these values as needed
-                       limits = c(0, 80)) +
-  theme_classic() +
-  xlab("Rep1 MOI") +
-  ylab("Rep2 MOI") +
-  facet_wrap(~Marker)+
-  geom_smooth(method=lm) +
-  scale_x_continuous(breaks=c(0,1,2,3,4,5,6,7,8,9,10),limits=c(0,10))+
-  scale_y_continuous(breaks=c(0,1,2,3,4,5,6,7,8,9,10),limits=c(0,10))+
-  ggtitle("Heatmap of Correlation between Replicates MOI")
-
-
-# Function to process data
+################################################### Data processing ###################################################
+######## Functions to process data
 process_data <- function(data, type) {
   # Common preprocessing
   data <- data %>%
@@ -175,325 +123,193 @@ process_mosquito <- function(data) {
            Mosquito = str_replace_all(Mosquito, "_", ""),
            Day = as.numeric(str_sub(Day, 4)),
            Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
-           
+    
     select(Individual, Day, Mosquito, Timepoint, everything())
   
   return(data_split)
 }
 
-# Load and process the data
-TRAP_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/TRAP_finalTab.csv",header=TRUE,sep=',')
-CSP_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/CSP_finalTab.csv",header=TRUE,sep=',')
-Pfs47_1_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/pfs47_1_finalTab.csv",header=TRUE,sep=',')
-Pfs47_2_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/pfs47_2_finalTab.csv",header=TRUE,sep=',')
-
-TRAP_processed <- process_data(TRAP_raw, "trap")
-CSP_processed <- process_data(CSP_raw, "csp")
-Pfs47_1_processed <- process_data(Pfs47_1_raw, "pfs47_1")
-Pfs47_2_processed <- process_data(Pfs47_2_raw, "pfs47_2")
-
-# Calculate numbers of samples
-length(unique(TRAP_processed$SampleID))
-length(unique(CSP_processed$SampleID))
-length(unique(Pfs47_1_processed$SampleID))
-length(unique(Pfs47_2_processed$SampleID))
-
-# Process Matching Haplotypes
-Haplotypes_CSP <- process_haplotypes(CSP_processed)
-Haplotypes_TRAP <- process_haplotypes(TRAP_processed)
-Haplotypes_Pfs47_1 <- process_haplotypes(Pfs47_1_processed)
-Haplotypes_Pfs47_2 <- process_haplotypes(Pfs47_2_processed)
-
-# Calculate total reads and percentages
-Haplotypes_CSP <- calculate_reads(Haplotypes_CSP)
-Haplotypes_TRAP <- calculate_reads(Haplotypes_TRAP)
-Haplotypes_Pfs47_1 <- calculate_reads(Haplotypes_Pfs47_1)
-Haplotypes_Pfs47_2 <- calculate_reads(Haplotypes_Pfs47_2)
-
-# Assign species
-Haplotypes_CSP$species <- ifelse(grepl("Mosq", Haplotypes_CSP$SampleID), "mosquito", "human")
-Haplotypes_TRAP$species <- ifelse(grepl("Mosq", Haplotypes_TRAP$SampleID), "mosquito", "human")
-Haplotypes_Pfs47_1$species <- ifelse(grepl("Mosq", Haplotypes_Pfs47_1$SampleID), "mosquito", "human")
-Haplotypes_Pfs47_2$species <- ifelse(grepl("Mosq", Haplotypes_Pfs47_2$SampleID), "mosquito", "human")
-
-# Combine and format final haplotype data
-FinalHaplotypes <- merge(Haplotypes_TRAP, 
-                         Haplotypes_CSP, 
-                         by = "SampleID", 
-                         all = TRUE)
-FinalHaplotypes$species.x <- NULL
-FinalHaplotypes$species.y <- NULL
-colnames(FinalHaplotypes) <- c("SampleID", "TRAP_hap", "TRAP_reads", "TRAP_MOI", "TRAP_TotalReads", "TRAP_Perc", "CSP_hap", "CSP_reads", "CSP_MOI", "CSP_TotalReads", "CSP_Perc")
-
-Pfs47_FinalHaplotypes <- merge(Haplotypes_Pfs47_1, 
-                         Haplotypes_Pfs47_2, 
-                         by = "SampleID", 
-                         all = TRUE)
-Pfs47_FinalHaplotypes$species.x <- NULL
-Pfs47_FinalHaplotypes$species.y <- NULL
-colnames(Pfs47_FinalHaplotypes) <- c("SampleID", "Pfs47_1_hap", "Pfs47_1_reads", "Pfs47_1_MOI", "Pfs47_1_TotalReads", "Pfs47_1_Perc", "Pfs47_2_hap", "Pfs47_2_reads", "Pfs47_2_MOI", "Pfs47_2_TotalReads", "Pfs47_2_Perc")
-
-
-
-# Split by host type and process SampleID
-FinalHaplotypes_Human <- process_human(filter(FinalHaplotypes, !grepl("Mosq", SampleID)))
-FinalHaplotypes_Mosq <- process_mosquito(filter(FinalHaplotypes, grepl("Mosq", SampleID)))
-FINAL_CSP_TRAP<-bind_rows(FinalHaplotypes_Mosq,FinalHaplotypes_Human)
-FINAL_CSP_TRAP$Species <- ifelse(is.na(FINAL_CSP_TRAP$Mosquito), "human", "mosquito")
-write.csv(FINAL_CSP_TRAP, "FINAL_CSP_TRAP.csv", row.names = FALSE)
-Pfs47_FinalHaplotypes_Human <- process_human(filter(Pfs47_FinalHaplotypes, !grepl("Mosq", SampleID)))
-Pfs47_FinalHaplotypes_Mosq <- process_mosquito(filter(Pfs47_FinalHaplotypes, grepl("Mosq", SampleID)))
-FINAL_Pfs47<-bind_rows(Pfs47_FinalHaplotypes_Mosq,Pfs47_FinalHaplotypes_Human)
-FINAL_Pfs47$Species <- ifelse(is.na(FINAL_Pfs47$Mosquito), "human", "mosquito")
-
-# Calculate numbers
-# individuals
-length(unique(FinalHaplotypes_Human$Individual[!is.na(FinalHaplotypes_Human$CSP_hap)])) #49
-length(unique(FinalHaplotypes_Human$Individual[!is.na(FinalHaplotypes_Human$TRAP_hap)])) #49
-length(unique(Pfs47_FinalHaplotypes_Human$Individual[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)])) #33
-length(unique(Pfs47_FinalHaplotypes_Human$Individual[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)])) #38
-# individuals/timepoints
-length(na.omit(FinalHaplotypes_Human$CSP_MOI)) #165
-length(na.omit(FinalHaplotypes_Human$TRAP_MOI)) #164
-length(na.omit(Pfs47_FinalHaplotypes_Human$Pfs47_1_MOI)) #33
-length(na.omit(Pfs47_FinalHaplotypes_Human$Pfs47_2_MOI)) #38
-# number of those human timepoints that are infectious/non-infectious
-ClinicalData<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/ClinicalData.csv",header=TRUE,sep=',')
-ClinicalData$SampleID<-paste(ClinicalData$studycode,"_Day",ClinicalData$studyvisit,sep="")
-FinalHaplotypes_Human_clinical <- FinalHaplotypes_Human %>%
-  left_join(ClinicalData, by = "SampleID")
-FinalHaplotypes_Human_clinical$Infectious<- "Yes"
-FinalHaplotypes_Human_clinical$Infectious[FinalHaplotypes_Human_clinical$mosq_pos == 0]<- "No"
-sum(!is.na(FinalHaplotypes_Human_clinical$TRAP_hap[FinalHaplotypes_Human_clinical$Infectious == "Yes"])) #109
-sum(!is.na(FinalHaplotypes_Human_clinical$TRAP_hap[FinalHaplotypes_Human_clinical$Infectious == "No"])) #55
-sum(!is.na(FinalHaplotypes_Human_clinical$CSP_hap[FinalHaplotypes_Human_clinical$Infectious == "Yes"])) #109
-sum(!is.na(FinalHaplotypes_Human_clinical$CSP_hap[FinalHaplotypes_Human_clinical$Infectious == "No"])) #56
-sum(FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0, na.rm = TRUE) #14 Number of non-infectious individuals at Day0
-sum(!is.na(FinalHaplotypes_Human_clinical$CSP_hap[FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0])) #14
-sum(!is.na(FinalHaplotypes_Human_clinical$TRAP_hap[FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0])) #14
-FinalHaplotypes_Human_clinical$Individual[FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0] #14
-ClinicalData$studycode[ClinicalData$mosq_pos == 0 & ClinicalData$studyvisit == 0 & ClinicalData$arm_num%in% c(1,3)] #17
-# mosquitoes
-length(na.omit(FinalHaplotypes_Mosq$CSP_MOI)) #142
-length(na.omit(FinalHaplotypes_Mosq$TRAP_MOI)) #129
-length(na.omit(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_MOI)) #23
-length(na.omit(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_MOI)) #32
-# individuals for which there are matching mosquitoes (any timepoint)
-length(unique(FinalHaplotypes_Mosq$Individual[!is.na(FinalHaplotypes_Mosq$CSP_hap)])) #36
-length(unique(FinalHaplotypes_Mosq$Individual[!is.na(FinalHaplotypes_Mosq$TRAP_hap)])) #35
-length(unique(Pfs47_FinalHaplotypes_Mosq$Individual[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)])) #15
-length(unique(Pfs47_FinalHaplotypes_Mosq$Individual[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)])) #21
-#	Matching timepoints individuals-mosquitoes
-length(unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$CSP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$CSP_hap)])))
-length(unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$TRAP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$TRAP_hap)])))
-length(unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)])))
-length(unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)])))
-#	Matching samples individuals-mosquitoes
-matching_timepoints_CSP<-unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$CSP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$CSP_hap)]))
-Matching_Mosq_Haplotypes_CSP<- FinalHaplotypes_Mosq[FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_CSP,]
-nrow(Matching_Mosq_Haplotypes_CSP) #130
-matching_timepoints_TRAP<-unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$TRAP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$TRAP_hap)]))
-Matching_Mosq_Haplotypes_TRAP<- FinalHaplotypes_Mosq[FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_TRAP,]
-nrow(Matching_Mosq_Haplotypes_TRAP) #121
-matching_timepoints_Pfs47_1<-unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)]))
-Matching_Mosq_Haplotypes_Pfs47_1<- Pfs47_FinalHaplotypes_Mosq[Pfs47_FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_Pfs47_1,]
-nrow(Matching_Mosq_Haplotypes_Pfs47_1) #14
-matching_timepoints_Pfs47_2<-unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)]))
-Matching_Mosq_Haplotypes_Pfs47_2<- Pfs47_FinalHaplotypes_Mosq[Pfs47_FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_Pfs47_2,]
-nrow(Matching_Mosq_Haplotypes_Pfs47_2) #29
-
-#	Visualisation of timepoints at which there are both individuals and mosquitoes
-p<-ggplot(Matching_Mosq_Haplotypes_CSP, aes(x=factor(Day, levels=c(0, 2, 7, 14, 21, 28, 35)), fill=Day)) +
-  geom_bar() +
-  labs(x="Day", y="Number of Occurrences - matching human/mosq") +
-  theme_classic()+
-  scale_fill_viridis_d() +
-  theme(legend.position="none")+
-  ggtitle("CSP")
-q<-ggplot(Matching_Mosq_Haplotypes_TRAP, aes(x=factor(Day, levels=c(0, 2, 7, 14, 21, 28, 35)), fill=Day)) +
-  geom_bar() +
-  labs(x="Day", y="Number of Occurrences - matching human/mosq") +
-  theme_classic()+
-  scale_fill_viridis_d() +
-  theme(legend.position="none")+
-  ggtitle("TRAP")
-grid.arrange(p, q, ncol=2)
-combined_plot <- arrangeGrob(p, q, ncol=2)
-ggsave ("Barchart_matching_hum_mosq.pdf", combined_plot,width = 14, height = 6)
-
-
-
-
-
-# Percentage monoclonal versus polyclonal at each timepoint and each marker
-MonoPoly<-FINAL_CSP_TRAP
-MonoPoly$TRAP_MonoPoly[MonoPoly$TRAP_MOI==1]<-"Mono"
-MonoPoly$TRAP_MonoPoly[MonoPoly$TRAP_MOI>1]<-"Poly"
-MonoPoly$CSP_MonoPoly[MonoPoly$CSP_MOI==1]<-"Mono"
-MonoPoly$CSP_MonoPoly[MonoPoly$CSP_MOI>1]<-"Poly"
-MonoPoly$Species<-factor(MonoPoly$Species,levels = c("mosquito","human"))
-MonoPoly$Mosquito<-NULL
-CSP_MonoPoly <- MonoPoly[!is.na(MonoPoly$CSP_MonoPoly), ]
-TRAP_MonoPoly <- MonoPoly[!is.na(MonoPoly$TRAP_MonoPoly), ]
-pal<-c("lightgrey", "grey48")
-
-# Calculate counts and positions
-CSP_counts <- CSP_MonoPoly %>%
-  group_by(Day, Species, CSP_MonoPoly) %>%
-  dplyr::summarize(Count = n(), .groups = 'drop') %>%
-  group_by(Day, Species) %>%
-  mutate(LabelPos = cumsum(Count) - (0.5 * Count))
-
-
-TRAP_counts <- TRAP_MonoPoly %>%
-  group_by(Day, Species, TRAP_MonoPoly) %>%
-  dplyr::summarize(Count = n(), .groups = 'drop') %>%
-  group_by(Day, Species) %>%
-  mutate(LabelPos = cumsum(Count) - (0.5 * Count))
-
-a<-ggplot(CSP_MonoPoly, aes(x=as.factor(Day), fill=factor(CSP_MonoPoly))) + 
-  geom_bar(position="fill", stat="count") +
-  #geom_text(data = CSP_counts, aes(x = as.factor(Day), y = LabelPos/sum(Count), label = Count), position = position_fill(), vjust = 0.5) +
-  xlab("Days after treatment initiation") +
-  ylab("Percentage of samples") +
-  ggtitle("CSP") +
-  facet_wrap(~Species, ncol=1) +
-  theme_classic() +
-  theme(legend.position="none",
-        axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10)) +
-  scale_fill_manual(values=pal)
-
-b<-ggplot(TRAP_MonoPoly, aes(x=as.factor(Day),fill=factor(TRAP_MonoPoly))) + 
-  geom_bar(position="fill", stat="count")+
-  geom_text(data = TRAP_counts, aes(x = as.factor(Day), y = LabelPos/sum(Count), label = Count), position = position_fill(), vjust = 0.5) +
-  xlab("Days after treatment initiation")+
-  ylab("Percentage of samples")+
-  ggtitle("TRAP")+
-  facet_wrap(~Species,ncol=1)+
-  theme_classic()+
-  theme(axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10))+
-  scale_fill_manual(values=pal)
-combined_plot <- a + b + plot_layout(ncol=2, widths=c(1.1, 1))
-ggsave("Fig1A_MonoPoly.pdf", combined_plot, width=14, height=6)
-
-
-# Percentage monoclonal versus polyclonal at each timepoint - both markers combined
-MonoPoly<-FINAL_CSP_TRAP
-MonoPoly$TRAP_MonoPoly[MonoPoly$TRAP_MOI==1]<-"Mono"
-MonoPoly$TRAP_MonoPoly[MonoPoly$TRAP_MOI>1]<-"Poly"
-MonoPoly$CSP_MonoPoly[MonoPoly$CSP_MOI==1]<-"Mono"
-MonoPoly$CSP_MonoPoly[MonoPoly$CSP_MOI>1]<-"Poly"
-MonoPoly$Species<-factor(MonoPoly$Species,levels = c("mosquito","human"))
-MonoPoly$Mosquito<-NULL
-MonoPoly$MonoPoly<-"Mono"
-MonoPoly$MonoPoly[MonoPoly$CSP_MonoPoly == "Poly" |MonoPoly$TRAP_MonoPoly == "Poly" ] <-"Poly"
-
-pal<-c("lightgrey", "grey48")
-
-# Calculate counts and positions
-counts <- MonoPoly %>%
-  group_by(Day, Species, MonoPoly) %>%
-  dplyr::summarize(Count = n(), .groups = 'drop') %>%
-  group_by(Day, Species) %>%
-  mutate(LabelPos = cumsum(Count) - (0.5 * Count))
-
-c<-ggplot(MonoPoly[MonoPoly$Day%in% c("0","2","7","14"),], aes(x=as.factor(Day),fill=factor(MonoPoly))) + 
-  geom_bar(position="fill", stat="count")+
-  #geom_text(data = counts, aes(x = as.factor(Day), y = LabelPos/sum(Count), label = Count), position = position_fill(), vjust = 1.5) +
-  xlab("Days after treatment initiation")+
-  ylab("Percentage of samples")+
-  facet_wrap(~Species,ncol=1)+
-  theme_classic()+
-  theme(axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10))+
-  scale_fill_manual(values=pal)
-ggsave("Fig1A_MonoPoly_MarkersCombined.pdf", c, width=6, height=6)
-
-
-
-# Melt data for further analysis
+# Function to melt data for further analysis
 melt_data <- function(data) {
   data %>%
     separate_rows(Haplotype, Reads, Percentage, sep = " ")
 }
 
-# Melt and combine data
+# Function to determine matched or unmatched haplotypes in each species
+determine_sample_type <- function(group) {
+  type <- if("human" %in% group$species && "mosquito" %in% group$species) {
+    "matching"
+  } else if("human" %in% group$species) {
+    "human_only"
+  } else if("mosquito" %in% group$species) {
+    "mosquito_only"
+  } else {
+    NA_character_  # Handle cases where none of the conditions are met
+  }
+  
+  # Convert to factor with specified levels
+  factor(type, levels = c("human_only", "mosquito_only", "matching"))
+}
+
+# Define a function to perform the matching and transformation
+process_data2 <- function(data) {
+  data %>%
+    group_by(Timepoint) %>%
+    filter("human" %in% species & "mosquito" %in% species) %>%
+    ungroup() %>%
+    group_by(Timepoint, Haplotype) %>%
+    mutate(Comparison = determine_sample_type(cur_data()),
+           Day = str_extract(Timepoint, "_([^_]+)$"),  
+           Day = str_replace_all(Day, "_", ""), 
+           Day = as.numeric(str_sub(Day, 4)),
+           Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
+    ungroup()
+}
+
+######## Set working directory and convert HaplotypR output .txt files to .csv files
+setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis")
+filelist = list.files(pattern = ".txt")
+for (i in 1:length(filelist)){
+  input<-filelist[i]
+  output <- paste0(gsub("\\.txt$", "", input), ".csv")
+  print(paste("Processing the file:", input))
+  data = read.delim(input, header = TRUE)   
+  write.table(data, file=output, sep=",", col.names=TRUE, row.names=FALSE)
+}
+
+
+######## Load and process the data
+TRAP_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/TRAP_finalTab.csv",header=TRUE,sep=',')
+CSP_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/CSP_finalTab.csv",header=TRUE,sep=',')
+ClinicalData<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/ClinicalData.csv",header=TRUE,sep=',')
+ClinicalData$SampleID<-paste(ClinicalData$studycode,"_Day",ClinicalData$studyvisit,sep="")
+
+# Initial processing
+TRAP_processed <- process_data(TRAP_raw, "trap")
+CSP_processed <- process_data(CSP_raw, "csp")
+
+# Process Matching Haplotypes
+Haplotypes_CSP <- process_haplotypes(CSP_processed)
+Haplotypes_TRAP <- process_haplotypes(TRAP_processed)
+
+# Calculate total reads and percentages + assign species
+Haplotypes_CSP <- calculate_reads(Haplotypes_CSP)
+Haplotypes_TRAP <- calculate_reads(Haplotypes_TRAP)
+Haplotypes_CSP$species <- ifelse(grepl("Mosq", Haplotypes_CSP$SampleID), "mosquito", "human")
+Haplotypes_TRAP$species <- ifelse(grepl("Mosq", Haplotypes_TRAP$SampleID), "mosquito", "human")
+
+
+# Combine markers and format haplotype data
+FinalHaplotypes <- merge(Haplotypes_TRAP, Haplotypes_CSP, by = "SampleID", all = TRUE)
+FinalHaplotypes$species.x <- NULL
+FinalHaplotypes$species.y <- NULL
+colnames(FinalHaplotypes) <- c("SampleID", "TRAP_hap", "TRAP_reads", "TRAP_MOI", "TRAP_TotalReads", "TRAP_Perc", "CSP_hap", "CSP_reads", "CSP_MOI", "CSP_TotalReads", "CSP_Perc")
+
+
+# Split by host type and process SampleID, then combine again
+FinalHaplotypes_Human <- process_human(filter(FinalHaplotypes, !grepl("Mosq", SampleID)))
+FinalHaplotypes_Mosq <- process_mosquito(filter(FinalHaplotypes, grepl("Mosq", SampleID)))
+FINAL_CSP_TRAP<-bind_rows(FinalHaplotypes_Mosq,FinalHaplotypes_Human)
+FINAL_CSP_TRAP$Species <- ifelse(is.na(FINAL_CSP_TRAP$Mosquito), "human", "mosquito")
+
+
+# Melt data
 Haplotypes_CSP_Molten <- melt_data(Haplotypes_CSP)
 Haplotypes_CSP_Molten$Timepoint <- gsub("_Mosq\\d+", "", Haplotypes_CSP_Molten$SampleID)
 Haplotypes_TRAP_Molten <- melt_data(Haplotypes_TRAP)
 Haplotypes_TRAP_Molten$Timepoint <- gsub("_Mosq\\d+", "", Haplotypes_TRAP_Molten$SampleID)
-write.csv(Haplotypes_CSP_Molten,"Haplotypes_CSP_Molten.csv",row.names = FALSE)
-Haplotypes_Pfs47_1_Molten <- melt_data(Haplotypes_Pfs47_1)
-Haplotypes_Pfs47_1_Molten$Timepoint <- gsub("_Mosq\\d+", "", Haplotypes_Pfs47_1_Molten$SampleID)
-Haplotypes_Pfs47_2_Molten <- melt_data(Haplotypes_Pfs47_2)
-Haplotypes_Pfs47_2_Molten$Timepoint <- gsub("_Mosq\\d+", "", Haplotypes_Pfs47_2_Molten$SampleID)
 
-# Only keep rows of timepoints at which there are both human and mosquito samples
-Matching_Haplotypes_CSP_Molten <- Haplotypes_CSP_Molten %>%
-  group_by(Timepoint) %>%
-  filter("human" %in% species & "mosquito" %in% species) %>%
-  ungroup()
-Matching_Haplotypes_TRAP_Molten <- Haplotypes_TRAP_Molten %>%
-  group_by(Timepoint) %>%
-  filter("human" %in% species & "mosquito" %in% species) %>%
-  ungroup()
-Matching_Haplotypes_Pfs47_1_Molten <- Haplotypes_Pfs47_1_Molten %>%
-  group_by(Timepoint) %>%
-  filter("human" %in% species & "mosquito" %in% species) %>%
-  ungroup()
-Matching_Haplotypes_Pfs47_2_Molten <- Haplotypes_Pfs47_2_Molten %>%
-  group_by(Timepoint) %>%
-  filter("human" %in% species & "mosquito" %in% species) %>%
-  ungroup()
 
-# Function to determine matched or unmatched haplotypes in each species
-determine_sample_type <- function(group) {
-  if("human" %in% group$species && "mosquito" %in% group$species) {
-    return("matching")
-  } else if("human" %in% group$species) {
-    return("human_only")
-  } else if("mosquito" %in% group$species) {
-    return("mosquito_only")
+# Only keep rows of timepoints at which there are both human and mosquito samples + determine matched or unmatched haplotypes in each species
+Matching_Haplotypes_CSP_Molten <- process_data2(Haplotypes_CSP_Molten)
+Matching_Haplotypes_TRAP_Molten <- process_data2(Haplotypes_TRAP_Molten)
+
+
+
+################################################### Data analysis and visualisation ############################################################
+
+# QC to check that replicates are similar
+TRAP_raw %>%
+  filter(grepl("^trap-", Haplotype)) %>%
+  group_by(SampleID) %>%
+  summarise(Count = n(), .groups = 'drop') %>%
+  separate(SampleID, into = c("IndividualID", "Rep"), sep = "_Rep") %>%
+  mutate(Rep = paste0("Rep", Rep)) %>%
+  pivot_wider(names_from = Rep, values_from = Count, values_fill = list(Count = 0)) %>%
+  mutate(Marker = "TRAP") %>%
+  bind_rows(
+    CSP_raw %>%
+      filter(grepl("^csp-", Haplotype)) %>%
+      group_by(SampleID) %>%
+      summarise(Count = n(), .groups = 'drop') %>%
+      separate(SampleID, into = c("IndividualID", "Rep"), sep = "_Rep") %>%
+      mutate(Rep = paste0("Rep", Rep)) %>%
+      pivot_wider(names_from = Rep, values_from = Count, values_fill = list(Count = 0)) %>%
+      mutate(Marker = "CSP")
+  ) %>%
+  { 
+    # Calculate Pearson correlation coefficients within the pipe using curly braces
+    cor_TRAP <- cor.test(.$Rep1[.$Marker == "TRAP"], .$Rep2[.$Marker == "TRAP"], method = "pearson")$estimate
+    cor_CSP <- cor.test(.$Rep1[.$Marker == "CSP"], .$Rep2[.$Marker == "CSP"], method = "pearson")$estimate
+    
+    ggplot(., aes(x = Rep1, y = Rep2, color = Marker)) + 
+      geom_jitter(alpha = 0.5) +
+      geom_smooth(method = lm) +
+      annotate("text", x = 8, y = 2, label = sprintf("TRAP: r = %.2f", cor_TRAP), hjust = 0, color = "#4C67BD") +
+      annotate("text", x = 8, y = 1, label = sprintf("CSP: r = %.2f", cor_CSP), hjust = 0, color = "#D90368") +
+      theme_classic() +
+      xlab("Rep1 MOI") +
+      ylab("Rep2 MOI") +
+      xlim(0, 10) +
+      ylim(0, 10) +
+      ggtitle("Correlation between replicates MOI") +
+      scale_color_manual(values = c("TRAP" = "#4C67BD", "CSP" = "#D90368"))
   }
-}
+ggsave("Correlation_Replicates.pdf", width = 6, height = 5)
 
-Matching_Haplotypes_CSP_Molten <- Matching_Haplotypes_CSP_Molten %>%
-  group_by(Timepoint, Haplotype) %>%
-  mutate(Comparison = determine_sample_type(cur_data()),
-         Day = str_extract(Timepoint, "_([^_]+)$"),  
-         Day = str_replace_all(Day, "_", ""), 
-         Day = as.numeric(str_sub(Day, 4)),
-         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
-  ungroup()
-Matching_Haplotypes_TRAP_Molten <- Matching_Haplotypes_TRAP_Molten %>%
-  group_by(Timepoint, Haplotype) %>%
-  mutate(Comparison = determine_sample_type(cur_data()),
-         Day = str_extract(Timepoint, "_([^_]+)$"),  
-         Day = str_replace_all(Day, "_", ""), 
-         Day = as.numeric(str_sub(Day, 4)),
-         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
-  ungroup()
-Matching_Haplotypes_Pfs47_1_Molten <- Matching_Haplotypes_Pfs47_1_Molten %>%
-  group_by(Timepoint, Haplotype) %>%
-  mutate(Comparison = determine_sample_type(cur_data()),
-         Day = str_extract(Timepoint, "_([^_]+)$"),  
-         Day = str_replace_all(Day, "_", ""), 
-         Day = as.numeric(str_sub(Day, 4)),
-         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
-  ungroup()
-Matching_Haplotypes_Pfs47_2_Molten <- Matching_Haplotypes_Pfs47_2_Molten %>%
-  group_by(Timepoint, Haplotype) %>%
-  mutate(Comparison = determine_sample_type(cur_data()),
-         Day = str_extract(Timepoint, "_([^_]+)$"),  
-         Day = str_replace_all(Day, "_", ""), 
-         Day = as.numeric(str_sub(Day, 4)),
-         Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
-  ungroup()
 
-# Plot Figure 1B
-Matching_Haplotypes_CSP_Molten$Comparison<-factor(Matching_Haplotypes_CSP_Molten$Comparison,levels=c("human_only","mosquito_only","matching"))
+
+
+# Percentage monoclonal versus polyclonal at each timepoint - both markers combined
+pal<-c("lightgrey", "grey48")
+
+FINAL_CSP_TRAP %>%
+  mutate(
+    TRAP_MonoPoly = ifelse(is.na(TRAP_MOI), NA, ifelse(TRAP_MOI == 1, "Mono", "Poly")),
+    CSP_MonoPoly = ifelse(is.na(CSP_MOI), NA, ifelse(CSP_MOI == 1, "Mono", "Poly")),
+    MonoPoly = ifelse(
+      is.na(CSP_MonoPoly) & is.na(TRAP_MonoPoly), NA, 
+      ifelse(is.na(CSP_MonoPoly), TRAP_MonoPoly,
+             ifelse(is.na(TRAP_MonoPoly), CSP_MonoPoly,
+                    ifelse(CSP_MonoPoly == "Poly" | TRAP_MonoPoly == "Poly", "Poly", "Mono")
+             )
+      )
+    ),
+    Species = factor(Species, levels = c("mosquito", "human"))
+  ) %>%
+  select(-Mosquito) %>%
+  {
+    counts <- . %>%
+      group_by(Day, Species, MonoPoly) %>%
+      summarize(Count = n(), .groups = 'drop') %>%
+      group_by(Day, Species) %>%
+      mutate(LabelPos = cumsum(Count) - (0.5 * Count))
+    
+    ggplot(.[.$Day %in% c("0", "2", "7", "14"),], aes(x = as.factor(Day), fill = factor(MonoPoly))) + 
+      geom_bar(position = "fill", stat = "count") +
+      geom_text(data = counts, aes(x = as.factor(Day), y = LabelPos/sum(Count), label = Count), position = position_fill(), vjust = 1.5) +
+      xlab("Days after treatment initiation") +
+      ylab("Percentage of samples") +
+      facet_wrap(~Species, ncol = 1) +
+      theme_classic() +
+      theme(axis.text.x = element_text(size = 10), axis.text.y = element_text(size = 10)) +
+      scale_fill_manual(values = pal)
+  }
+ggsave("MonoPoly_MarkersCombined.pdf", width=6, height=6)
+
+
+
+# Percentage matching clones/human only/mosquito only at each timepoint
 pal<-c("#a891cf", "#f8997c","lightgrey")
 a<- ggplot(Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$Day%in% c("0","2","7","14"),], aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
@@ -505,7 +321,6 @@ a<- ggplot(Matching_Haplotypes_CSP_Molten[Matching_Haplotypes_CSP_Molten$Day%in%
         axis.text.x = element_text(size = 10), 
         axis.text.y = element_text(size = 10))+
   scale_fill_manual(values=pal)
-Matching_Haplotypes_TRAP_Molten$Comparison<-factor(Matching_Haplotypes_TRAP_Molten$Comparison,levels=c("human_only","mosquito_only","matching"))
 b<- ggplot(Matching_Haplotypes_TRAP_Molten[Matching_Haplotypes_TRAP_Molten$Day%in% c("0","2","7","14"),], aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
   theme_classic()+
@@ -909,43 +724,65 @@ ggsave("Pfs47_Clonality.pdf", combined_clonality_plot, width=10, height=5)
 
 
 #Check relation between clonality and infection rates (individuals only)
-ClinicalData<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/ClinicalData.csv",header=TRUE,sep=',')
-ClinicalData$SampleID<-paste(ClinicalData$studycode,"_Day",ClinicalData$studyvisit,sep="")
+
 
 merge<-merge(FINAL_CSP_TRAP,ClinicalData,by="SampleID")
 merge$percentagemosqinfected<-(merge$mosq_pos/merge$mosq_total)*100
 
-ggplot(merge, aes(x=as.factor(MOI_Combined), y=percentagemosqinfected,fill=factor(MOI_Combined))) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=percentagemosqinfected)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
   theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
   theme(legend.position = "none")+
   labs(x= "MOI",y="Infected Mosquitoes (%)")+
-  ggtitle("Infection rate ~ clonality")
+  ggtitle("Clonality ~ infection rate")
 ggsave("Infection_rate_clonality.pdf", width=6, height=5)
+
+#Monoclonal versus polyclonal
+plotme<-merge
+plotme$MonoPoly<-ifelse(plotme$MOI_Combined=="1","monoclonal","polyclonal")
+ggplot(plotme, aes(x=as.factor(MonoPoly), y=percentagemosqinfected)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA, fill="grey")+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  labs(x= "MOI",y="Infected Mosquitoes (%)")+
+  ggtitle("Clonality ~ infection rate")
+ggsave("Infection_rate_MonoPolyclonal.pdf", width=6, height=5)
 
 #Check relation between clonality and infection rates (individuals only) - normalised by GC
 merge$normalized_infection_rate <- (merge$percentagemosqinfected / merge$totalgct_ul) * 100
 
-ggplot(merge, aes(x=as.factor(MOI_Combined), y=normalized_infection_rate,fill=factor(MOI_Combined))) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=normalized_infection_rate)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA, fill="grey")+
   theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
   theme(legend.position = "none")+
   labs(x= "MOI",y="Infected Mosquitoes (%)")+
-  ggtitle("Infection rate ~ clonality")
+  ggtitle("Clonality ~ infection rate (normalised by GC density)")
 ggsave("Infection_rate_clonality_Normalised_by_GC.pdf", width=6, height=5)
 
+#Monoclonal versus polyclonal
+plotme<-merge
+plotme$MonoPoly<-ifelse(plotme$MOI_Combined=="1","monoclonal","polyclonal")
+ggplot(plotme, aes(x=as.factor(MonoPoly), y=normalized_infection_rate)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA, fill="grey")+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  labs(x= "MOI",y="Infected Mosquitoes (%)")+
+  ggtitle("Clonality ~ infection rate (normalised by GC density)")
+ggsave("Infection_rate_MonoPolyclonal_Normalised_by_GC.pdf", width=6, height=5)
 
 #Check relation between clonality and gametocytemia
-ggplot(merge, aes(x=as.factor(MOI_Combined), y=totalgct_ul,fill=factor(MOI_Combined))) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=totalgct_ul)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
   theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
   theme(legend.position = "none")+
   labs(x= "MOI",y="Gametocyte density")+
   scale_y_log10()+
-  ggtitle("Clonality ~ Gametocytaemia - all timepoints")
+  ggtitle("Clonality ~ Gametocytaemia (all timepoints)")
 ggsave("Clonaty_GC.pdf", width=6, height=5)
 
 #For Day0 only
@@ -958,6 +795,20 @@ ggplot(merge[merge$Day=="0",], aes(x=as.factor(MOI_Combined), y=totalgct_ul,fill
   scale_y_log10()+
   ggtitle("Clonality ~ Gametocytaemia")
 
+#Investigate un-infecting clones
+ClinicalData<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/ClinicalData.csv",header=TRUE,sep=',')
+ClinicalData$SampleID<-paste(ClinicalData$studycode,"_Day",ClinicalData$studyvisit,sep="")
+Haplotypes_CSP_Molten_merge<-merge(Haplotypes_CSP_Molten,ClinicalData,by="SampleID")
+Haplotypes_CSP_Molten_merge$percentagemosqinfected<-(Haplotypes_CSP_Molten_merge$mosq_pos/Haplotypes_CSP_Molten_merge$mosq_total)*100
+Haplotypes_CSP_Molten_merge$transmission<-ifelse(Haplotypes_CSP_Molten_merge$percentagemosqinfected>0,1,0)
+plotme_1<-Haplotypes_CSP_Molten_merge[Haplotypes_CSP_Molten_merge$transmission==1,]
+haplotype_counts <- table(plotme_1$Haplotype)
+pie(haplotype_counts, labels = paste(names(haplotype_counts), "(", haplotype_counts, ")", sep = ""), main = "Haplotype Distribution")
+plotme_0<-Haplotypes_CSP_Molten_merge[Haplotypes_CSP_Molten_merge$transmission==0,]
+haplotype_counts <- table(plotme_0$Haplotype)
+pie(haplotype_counts, labels = paste(names(haplotype_counts), "(", haplotype_counts, ")", sep = ""), main = "Haplotype Distribution")
+
+
 #Check relation between clonality and age (individuals only)
 merge <- merge %>%
   mutate(age_group = case_when(
@@ -965,20 +816,23 @@ merge <- merge %>%
     age >= 5 & age < 10 ~ "5-10",
     age >= 10 & age < 15 ~ "10-15",
     age >= 15 & age < 20 ~ "15-20",
-    age >= 20 ~ ">20"
+    age >= 20 ~ ">20",
   ),
   age_group = factor(age_group, levels = c("<5", "5-10", "10-15", "15-20", ">20")))
 
+hist(merge$age)
+
 merge <- merge %>%
-  group_by(age) %>%
+  group_by(age_group) %>%
   mutate(mean_MOI_by_age = mean(MOI_Combined, na.rm = TRUE)) %>%
   ungroup()
 
-ggplot(merge, aes(x=age, y=mean_MOI_by_age)) + 
+ggplot(merge[merge$Day=="0",], aes(x=age, y=mean_MOI_by_age)) + 
   geom_line()+
   theme_classic()+
   theme(legend.position = "none")+
   labs(x= "Age",y="Mean MOI")+
+  scale_y_continuous(limits=c(1,3), breaks= c(1,2,3))+
   ggtitle("Mean clonality by age")
 ggsave("Clonality_by_age.pdf", width=6, height=5)
 
@@ -1014,29 +868,55 @@ for (i in 1:nrow(OocystData)) {
 
 
 merge<-merge(FINAL_CSP_TRAP,transformed_df,by="SampleID")
-ggplot(merge, aes(x=as.factor(MOI_Combined), y=oocysts,fill=factor(MOI_Combined))) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=oocysts)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
   theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
   theme(legend.position = "none")+
-  labs(x= "MOI",y="Oocyst number")+
-  ggtitle("Oocyst number ~ clonality")
-ggsave("Oocyst_clonality.pdf", width=6, height=5)
+  scale_y_continuous(limits=c(1,200))+
+  labs(x= "MOI midgut",y="Oocyst number")+
+  ggtitle("Midgut clonality ~ oocyst number")
+ggsave("MidgutClonality_oocystnumber.pdf", width=6, height=5)
+
+#Monoclonal versus polyclonal
+plotme<-merge
+plotme$MonoPoly<-ifelse(plotme$MOI_Combined=="1","monoclonal","polyclonal")
+ggplot(plotme, aes(x=as.factor(MonoPoly), y=oocysts)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  scale_y_continuous(limits=c(1,200))+
+  labs(x= "MOI midgut",y="Oocyst number")+
+  ggtitle("Midgut clonality ~ oocyst number")
+ggsave("MidgutMonoPoly_oocystnumber.pdf", width=6, height=5)
 
 #Check relation between individual clonality and oocyst number (mosquitoes only)
 transformed_df$Individual_ID <- gsub("(.*)_(.*)", "\\1", transformed_df$SampleID)
 FINAL_CSP_TRAP_human<-FINAL_CSP_TRAP[FINAL_CSP_TRAP$Species == "human",]
 merge <- merge(x = FINAL_CSP_TRAP_human, y = transformed_df, by.x = 'SampleID', by.y = 'Individual_ID', all.y = TRUE)
 merge <- merge[!is.na(merge$MOI_Combined), ]
-  
-ggplot(merge, aes(x=as.factor(MOI_Combined), y=oocysts,fill=factor(MOI_Combined))) + 
+
+ggplot(merge, aes(x=as.factor(MOI_Combined), y=oocysts)) + 
   geom_boxplot(alpha = 0.5, outlier.shape = NA)+
   theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), aes(colour=factor(MOI_Combined)), alpha=0.9)+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
   theme(legend.position = "none")+
   labs(x= "MOI individual",y="Oocyst number")+
-  ggtitle("Individual clonality ~ Oocyst number")
+  ggtitle("Individual clonality ~ oocyst number")
 ggsave("Individual_Clonality_Oocyst_number.pdf", width=6, height=5)
+
+#Monoclonal versus polyclonal
+plotme<-merge
+plotme$MonoPoly<-ifelse(plotme$MOI_Combined=="1","monoclonal","polyclonal")
+ggplot(plotme, aes(x=as.factor(MonoPoly), y=oocysts)) + 
+  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
+  theme_classic()+
+  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  labs(x= "MOI individual",y="Oocyst number")+
+  ggtitle("Individual clonality ~ oocyst number")
+ggsave("Individual_Clonality_MonoPoly_Oocyst_number.pdf", width=6, height=5)
 
 #Check relation between individual clonality and oocyst number (mosquitoes only) - normalised by GC
 merge<-merge(merge,ClinicalData,by="SampleID")
@@ -1928,3 +1808,86 @@ b<-ggplot(haplotype_odds, aes(x = factor(Haplotype), y = Odds_of_Transmission, f
 
 combinedplot<-a+b
 ggsave("OddsOfTransmisson.pdf", width=15, height=7)
+
+
+
+########## Calculate numbers of samples
+#length(unique(TRAP_processed$SampleID))
+#length(unique(CSP_processed$SampleID))
+#length(unique(Pfs47_1_processed$SampleID))
+#length(unique(Pfs47_2_processed$SampleID))
+
+#### individuals
+#length(unique(FinalHaplotypes_Human$Individual[!is.na(FinalHaplotypes_Human$CSP_hap)])) #49
+#length(unique(FinalHaplotypes_Human$Individual[!is.na(FinalHaplotypes_Human$TRAP_hap)])) #49
+#length(unique(Pfs47_FinalHaplotypes_Human$Individual[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)])) #33
+#length(unique(Pfs47_FinalHaplotypes_Human$Individual[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)])) #38
+#### individuals/timepoints
+#length(na.omit(FinalHaplotypes_Human$CSP_MOI)) #165
+#length(na.omit(FinalHaplotypes_Human$TRAP_MOI)) #164
+#length(na.omit(Pfs47_FinalHaplotypes_Human$Pfs47_1_MOI)) #33
+#length(na.omit(Pfs47_FinalHaplotypes_Human$Pfs47_2_MOI)) #38
+##### number of those human timepoints that are infectious/non-infectious
+#ClinicalData<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/ClinicalData.csv",header=TRUE,sep=',')
+#ClinicalData$SampleID<-paste(ClinicalData$studycode,"_Day",ClinicalData$studyvisit,sep="")
+#FinalHaplotypes_Human_clinical <- FinalHaplotypes_Human %>%
+#left_join(ClinicalData, by = "SampleID")
+#FinalHaplotypes_Human_clinical$Infectious<- "Yes"
+#FinalHaplotypes_Human_clinical$Infectious[FinalHaplotypes_Human_clinical$mosq_pos == 0]<- "No"
+#sum(!is.na(FinalHaplotypes_Human_clinical$TRAP_hap[FinalHaplotypes_Human_clinical$Infectious == "Yes"])) #109
+#sum(!is.na(FinalHaplotypes_Human_clinical$TRAP_hap[FinalHaplotypes_Human_clinical$Infectious == "No"])) #55
+#sum(!is.na(FinalHaplotypes_Human_clinical$CSP_hap[FinalHaplotypes_Human_clinical$Infectious == "Yes"])) #109
+#sum(!is.na(FinalHaplotypes_Human_clinical$CSP_hap[FinalHaplotypes_Human_clinical$Infectious == "No"])) #56
+#sum(FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0, na.rm = TRUE) #14 Number of non-infectious individuals at Day0
+#sum(!is.na(FinalHaplotypes_Human_clinical$CSP_hap[FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0])) #14
+#sum(!is.na(FinalHaplotypes_Human_clinical$TRAP_hap[FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0])) #14
+#FinalHaplotypes_Human_clinical$Individual[FinalHaplotypes_Human_clinical$Infectious == "No" & FinalHaplotypes_Human_clinical$Day == 0] #14
+#ClinicalData$studycode[ClinicalData$mosq_pos == 0 & ClinicalData$studyvisit == 0 & ClinicalData$arm_num%in% c(1,3)] #17
+##### mosquitoes
+#length(na.omit(FinalHaplotypes_Mosq$CSP_MOI)) #142
+#length(na.omit(FinalHaplotypes_Mosq$TRAP_MOI)) #129
+#length(na.omit(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_MOI)) #23
+#length(na.omit(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_MOI)) #32
+#### individuals for which there are matching mosquitoes (any timepoint)
+#length(unique(FinalHaplotypes_Mosq$Individual[!is.na(FinalHaplotypes_Mosq$CSP_hap)])) #36
+#length(unique(FinalHaplotypes_Mosq$Individual[!is.na(FinalHaplotypes_Mosq$TRAP_hap)])) #35
+#length(unique(Pfs47_FinalHaplotypes_Mosq$Individual[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)])) #15
+#length(unique(Pfs47_FinalHaplotypes_Mosq$Individual[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)])) #21
+#####	Matching timepoints individuals-mosquitoes
+#length(unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$CSP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$CSP_hap)])))
+#length(unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$TRAP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$TRAP_hap)])))
+#length(unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)])))
+#length(unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)])))
+#####	Matching samples individuals-mosquitoes
+#matching_timepoints_CSP<-unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$CSP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$CSP_hap)]))
+#Matching_Mosq_Haplotypes_CSP<- FinalHaplotypes_Mosq[FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_CSP,]
+#nrow(Matching_Mosq_Haplotypes_CSP) #130
+#matching_timepoints_TRAP<-unique(intersect(FinalHaplotypes_Human$Timepoint[!is.na(FinalHaplotypes_Human$TRAP_hap)], FinalHaplotypes_Mosq$Timepoint[!is.na(FinalHaplotypes_Mosq$TRAP_hap)]))
+#Matching_Mosq_Haplotypes_TRAP<- FinalHaplotypes_Mosq[FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_TRAP,]
+#nrow(Matching_Mosq_Haplotypes_TRAP) #121
+#matching_timepoints_Pfs47_1<-unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_1_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_1_hap)]))
+#Matching_Mosq_Haplotypes_Pfs47_1<- Pfs47_FinalHaplotypes_Mosq[Pfs47_FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_Pfs47_1,]
+#nrow(Matching_Mosq_Haplotypes_Pfs47_1) #14
+#matching_timepoints_Pfs47_2<-unique(intersect(Pfs47_FinalHaplotypes_Human$Timepoint[!is.na(Pfs47_FinalHaplotypes_Human$Pfs47_2_hap)], Pfs47_FinalHaplotypes_Mosq$Timepoint[!is.na(Pfs47_FinalHaplotypes_Mosq$Pfs47_2_hap)]))
+#Matching_Mosq_Haplotypes_Pfs47_2<- Pfs47_FinalHaplotypes_Mosq[Pfs47_FinalHaplotypes_Mosq$Timepoint %in% matching_timepoints_Pfs47_2,]
+#nrow(Matching_Mosq_Haplotypes_Pfs47_2) #29
+
+#	Visualisation of timepoints at which there are both individuals and mosquitoes
+#p<-ggplot(Matching_Mosq_Haplotypes_CSP, aes(x=factor(Day, levels=c(0, 2, 7, 14, 21, 28, 35)), fill=Day)) +
+#geom_bar() +
+#labs(x="Day", y="Number of Occurrences - matching human/mosq") +
+#theme_classic()+
+#scale_fill_viridis_d() +
+#theme(legend.position="none")+
+#ggtitle("CSP")
+#q<-ggplot(Matching_Mosq_Haplotypes_TRAP, aes(x=factor(Day, levels=c(0, 2, 7, 14, 21, 28, 35)), fill=Day)) +
+#geom_bar() +
+#labs(x="Day", y="Number of Occurrences - matching human/mosq") +
+#theme_classic()+
+#scale_fill_viridis_d() +
+#theme(legend.position="none")+
+#ggtitle("TRAP")
+#grid.arrange(p, q, ncol=2)
+#combined_plot <- arrangeGrob(p, q, ncol=2)
+#ggsave ("Barchart_matching_hum_mosq.pdf", combined_plot,width = 14, height = 6)
+
