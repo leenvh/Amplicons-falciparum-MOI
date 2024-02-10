@@ -19,6 +19,11 @@ library(RColorBrewer)
 library(reshape2)
 library(ggrepel)   
 library(broom)
+library(dunn.test)
+library(ape)
+library(pegas)
+library(Biostrings)
+library(lubridate)
 
 # set seed for reproducibility
 set.seed(0)
@@ -26,6 +31,8 @@ set.seed(0)
 # determine color palettes
 pal1<-c("mosquito_only"="#f8997c","human_only"= "#a891cf", "matching" = "lightgrey")
 pal2<-c("lightgrey", "grey48")
+pal3<-c("monoclonal"="#9AC77B","polyclonal"='#7EC2DE')
+
 ################################################### Functions ###################################################
 process_data <- function(data, type) {
   # Common preprocessing
@@ -194,6 +201,16 @@ calculate_haplotype_fractions <- function(data, haplotype_column) {
     select(haplotype = !!sym(haplotype_column), Species, frac_sample)
 }
 
+# Function to extract sequence by haplotype and write to file
+write_haplotype_sequences <- function(sample_id, haplotype, day, species, sequence, file_path) {
+  # Construct the FASTA header
+  header <- paste0(">", sample_id, "_", haplotype, "_", day, "_",species)
+  # Combine header and sequence
+  fasta_entry <- paste(header, sequence, sep="\n")
+  # Write to file
+  cat(fasta_entry, file=file_path, append=TRUE, sep="\n")
+}
+
 ################################################### Data processing ###################################################
 ######## Set working directory and convert HaplotypR output .txt files to .csv files
 setwd("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis")
@@ -212,6 +229,9 @@ trap_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequenc
 csp_raw <- read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Haplotypr_Analysis/CSP_finalTab.csv",header=TRUE,sep=',')
 clinicaldata<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/ClinicalData.csv",header=TRUE,sep=',')
 oocystdata<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/Oocyst_data.csv",header=TRUE,sep=',')
+TRAP_haplotypes <- readDNAStringSet("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/trap_HaplotypeSeq_merge.fasta", format="fasta")
+CSP_haplotypes <- readDNAStringSet("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/csp_HaplotypeSeq_merge.fasta", format="fasta")
+labstrain_ratios_data<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/Labstrain_Ratios_Data.csv",header=TRUE,sep=',')
 
 # Initial processing
 trap_processed <- process_data(trap_raw, "trap")
@@ -307,6 +327,139 @@ merge_oocyst_clinical_individual_haplotypes<-merge(merge_oocyst_individual_haplo
 
 
 ################################################### Data visualisation ############################################################
+
+######## Figure 1 - Polyclonal infections have increased gametocyte densities and cause higher oocyst density infections ########
+#Gametocytemia Monoclonal versus polyclonal
+a<-merge_clinical_haplotypes %>%
+  mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal")) %>%
+  group_by(MonoPoly) %>%
+  summarise(
+    Mean = mean(totalgct_ul, na.rm = TRUE),
+    Min = min(totalgct_ul, na.rm = TRUE),
+    Max = max(totalgct_ul, na.rm = TRUE),
+    totalgct_ul = list(totalgct_ul)) %>%
+  unnest(totalgct_ul) %>%
+  ggplot(aes(x = as.factor(MonoPoly), y = totalgct_ul)) + 
+  geom_violin(aes(fill=MonoPoly),alpha = 0.5)+
+  #stat_summary(fun.data=mean_sdl, geom="pointrange", color="red")+
+  geom_jitter(position = position_jitter(width = 0.3, height = 0.2), alpha = 0.5) +
+  geom_point(aes(y = Mean), color = "#f8997c", size = 2) +
+  scale_y_log10() + 
+  annotation_logticks(sides = "l") +
+  scale_fill_manual(values=pal3)+
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "MOI human blood", y = "Gametocytes per µL") 
+
+# Perform the Wilcoxon rank-sum test
+merge_clinical_haplotypes %>%
+  mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal"))%>%
+  wilcox.test(totalgct_ul ~ MonoPoly, data = ., exact = FALSE)
+
+
+
+#Infection rates Monoclonal versus polyclonal
+b<-merge_clinical_haplotypes %>%
+  mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
+  group_by(MonoPoly) %>%
+  summarise(
+    Median_InfRate = median(percentagemosqinfected, na.rm = TRUE),
+    IQR_Lower = quantile(percentagemosqinfected, probs = 0.25, na.rm = TRUE),
+    IQR_Upper = quantile(percentagemosqinfected, probs = 0.75, na.rm = TRUE),
+    percentagemosqinfected = list(percentagemosqinfected)
+  ) %>%
+  unnest(percentagemosqinfected) %>%
+  ggplot(aes(x=as.factor(MonoPoly), y=percentagemosqinfected)) + 
+  geom_violin(aes(fill=MonoPoly),alpha = 0.5)+
+  geom_boxplot(width=0.03,fill="grey") +
+  theme_classic()+
+  scale_y_continuous(limits=c(0,100),breaks=c(0,20,40,60,80,100))+
+  #geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  #geom_point(aes(y = Median_InfRate), color = "#f8997c", size = 2) +
+  theme(legend.position = "none")+
+  scale_fill_manual(values=pal3)+
+  labs(x= "MOI human blood",y="Mosquito infection rate (%)")
+
+# Perform the Wilcoxon rank-sum test
+merge_clinical_haplotypes %>%
+  mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal")) %>%
+  wilcox.test(percentagemosqinfected ~ MonoPoly, data = ., exact = FALSE)
+
+
+#Oocyst density Monoclonal versus polyclonal
+c<-merge_oocyst_individual_haplotypes %>%
+  mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
+  group_by(MonoPoly) %>%
+  summarise(
+    Median_oocysts = median(oocysts, na.rm = TRUE),
+    IQR_Lower = quantile(oocysts, probs = 0.25, na.rm = TRUE),
+    IQR_Upper = quantile(oocysts, probs = 0.75, na.rm = TRUE),
+    oocysts = list(oocysts)
+  ) %>%
+  unnest(oocysts) %>%
+  ggplot(aes(x=as.factor(MonoPoly), y=oocysts)) + 
+  geom_violin(aes(fill=MonoPoly),alpha = 0.5)+
+  geom_boxplot(width=0.03,fill="grey") +
+  scale_y_log10(breaks=c(1,5,10,50,100,200))+
+  annotation_logticks(sides = "l") +
+  theme_classic()+
+  scale_fill_manual(values=pal3)+
+  #geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  #geom_point(aes(y = Median_oocysts), color = "#f8997c", size = 2) +
+  theme(legend.position = "none")+
+  labs(x= "MOI human blood",y="Oocyst density")
+
+
+# Perform the Wilcoxon rank-sum test
+merge_oocyst_individual_haplotypes %>%
+  mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal")) %>%
+  wilcox.test(oocysts ~ MonoPoly, data = ., exact = FALSE)
+
+
+
+#Infection rates Monoclonal versus polyclonal normalised by GC
+d<-merge_clinical_haplotypes %>%
+  mutate(normalized_infection_rate = (percentagemosqinfected / totalgct_ul) * 100,
+         MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
+  ggplot(aes(x=as.factor(MonoPoly), y=normalized_infection_rate)) + 
+  geom_violin(aes(fill=MonoPoly),alpha = 0.5)+
+  geom_boxplot(width=0.03,fill="grey") +
+  theme_classic()+
+  scale_y_continuous(limits=c(0,100),breaks=c(0,20,40,60,80,100))+
+  theme(legend.position = "none")+
+  scale_fill_manual(values=pal3)+
+  labs(x= "MOI human blood",y="Normalised mosquito infection rate (%)")
+
+# Perform the Wilcoxon rank-sum test
+merge_clinical_haplotypes %>%
+  mutate(normalized_infection_rate = (percentagemosqinfected / totalgct_ul) * 100,
+         MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
+  wilcox.test(normalized_infection_rate ~ MonoPoly, data = ., exact = FALSE)
+
+
+#Oocyst density Monoclonal versus polyclonal normalised by GC
+e<-merge_oocyst_clinical_individual_haplotypes %>%
+  mutate(normalized_oocysts = (oocysts / totalgct_ul) * 100,
+         MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
+  ggplot(aes(x=as.factor(MonoPoly), y=normalized_oocysts)) + 
+  geom_violin(aes(fill=MonoPoly),alpha = 0.5)+
+  geom_boxplot(width=0.03,fill="grey") +
+  theme_classic()+
+  scale_fill_manual(values=pal3)+
+  theme(legend.position = "none")+
+  labs(x= "MOI human blood",y="Normalized oocyst density (%)")
+
+# Perform the Wilcoxon rank-sum test
+merge_oocyst_clinical_individual_haplotypes %>%
+  mutate(normalized_oocysts = (oocysts / totalgct_ul) * 100,
+         MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
+  wilcox.test(normalized_oocysts ~ MonoPoly, data = ., exact = FALSE)
+
+
+Figure1<-a+b+c+d+e+ plot_layout(ncol=3, widths=c(1, 1,1))
+
+ggsave("Figure1.pdf", Figure3, width=14, height=6)
+ggsave("Figure1A.pdf", a , width=4.6, height=6)
 
 ######## Figure 2A - Haplotype prevalence in human vs mosquito samples ########
 csp_trap_frac %>%
@@ -496,10 +649,26 @@ ggsave("Mosq0_Matching_Haplotypes_Percentages.pdf", combined_plot, width=14, hei
 
 
 
-######## Figure 3 - Polyclonal infections have higher gametocyte densities, mosquito infection rates and oocyst density
 
 
-######## Figure S2 - Correlation between replicates ########
+
+######## Figure S1 - Detection of minority clones ######## 
+labstrain_ratios_data %>%
+  mutate(Ratio = factor(Ratio,levels=c("1:500","1:200","1:100","1:75","1:50","1:20","1:10","1:5","1:1","1:0","0:1")),
+         Haplotype = factor(Haplotype, levels =c("Background","3D7","HB3")),
+         Marker = factor(Amplicon, levels =c("TRAP","CSP"))) %>%
+  ggplot(aes(fill=Haplotype, y=Percentage, x=Ratio)) + 
+  geom_bar(position="fill", stat="identity")+
+  theme_classic()+
+  xlab("HB3:3D7 ratio")+
+  ylab("Percentage of total reads")+
+  facet_wrap(~Marker,ncol=2, strip.position ="top")+
+  scale_fill_manual(values = c("#FDCDAC","aliceblue","#B3E2CD"))+
+  coord_flip()
+
+ggsave("FigureS1_Labstrain_ratios_horizontal.pdf",height=4,width=8)
+
+######## Figure S2 - Correlation between replicates and markers ########
 trap_raw %>%
   filter(grepl("^trap-", Haplotype)) %>%
   group_by(SampleID) %>%
@@ -547,10 +716,6 @@ trap_raw %>%
   }
 ggsave("FigS2_Correlation_Replicates.pdf", width = 7, height = 6)
 
-
-
-
-######## Figure S3 - Correlation between CSP MOI and TRAP MOI ########
 csp_trap_finalhaplotypes %>%
   {
     # Calculate Pearson correlation coefficients within the pipe using curly braces
@@ -572,11 +737,119 @@ csp_trap_finalhaplotypes %>%
       geom_smooth(method=lm)+
       ggtitle("Correlation between csp and trap MOI")
   }
-ggsave("FigS3_Correlation_csp_trap.pdf", width=7, height=6)
+ggsave("FigS2_Correlation_csp_trap.pdf", width=7, height=6)
 
 
+######## Figure S3 - Haplotype Networks ########
 
-######## Figure S5 - Percentage of polyclonal infections ########
+# Convert raw byte vectors to character strings
+haplotype_sequences_TRAP <- sapply(TRAP_haplotypes, function(x) {
+  # Convert DNAString to character
+  as.character(x)
+})
+# Convert raw byte vectors to character strings
+haplotype_sequences_CSP <- sapply(CSP_haplotypes, function(x) {
+  # Convert DNAString to character
+  as.character(x)
+})
+
+
+# Iterate over the dataframe and write sequences to the FASTA file
+for (i in 1:nrow(trap_matching_haplotypes_molten)) {
+  individual <- trap_matching_haplotypes_molten$Individual[i]
+  haplotype <- trap_matching_haplotypes_molten$Haplotype[i]
+  species <- trap_matching_haplotypes_molten$species[i]
+  day <- trap_matching_haplotypes_molten$Day[i]
+  
+  # Check if the haplotype is in the list
+  if (haplotype %in% names(haplotype_sequences_TRAP)) {
+    sequence <- haplotype_sequences_TRAP[[haplotype]]
+    sequence <- as.character(sequence) # Make sure to convert to character
+  } else {
+    sequence <- "Sequence not found"
+  }
+  
+  # Write the sequence to the FASTA file
+  write_haplotype_sequences(individual, haplotype, day, species, sequence, 'TRAP_plotme.fasta')
+}
+
+# Iterate over the dataframe and write sequences to the FASTA file
+for (i in 1:nrow(csp_matching_haplotypes_molten)) {
+  individual <- csp_matching_haplotypes_molten$Individual[i]
+  haplotype <- csp_matching_haplotypes_molten$Haplotype[i]
+  species <- csp_matching_haplotypes_molten$species[i]
+  day <- csp_matching_haplotypes_molten$Day[i]
+  
+  # Check if the haplotype is in the list
+  if (haplotype %in% names(haplotype_sequences_CSP)) {
+    sequence <- haplotype_sequences_CSP[[haplotype]]
+    sequence <- as.character(sequence) # Make sure to convert to character
+  } else {
+    sequence <- "Sequence not found"
+  }
+  
+  # Write the sequence to the FASTA file
+  write_haplotype_sequences(individual, haplotype, day,species, sequence, 'CSP_plotme.fasta')
+}
+
+seqs <- read.FASTA("TRAP_plotme.fasta")
+seqs <- read.FASTA("CSP_plotme.fasta")
+haps <- haplotype(seqs)
+dist <- dist.dna(haps, "N")
+net <- rmst(dist, B=100)
+(sz <- summary(haps))
+nt.labs <- names(seqs)
+#sz <- sz[nt.labs]
+
+
+matrix <- as.matrix(seqs)
+rownames(matrix) <- nt.labs
+#rownames(matrix)<- sub("_","", rownames(matrix))
+#rownames(matrix) <- sub(".*_(.*)$", "\\1", rownames(matrix))
+regions <- haploFreq(matrix,split="_",what=3)
+#write.csv(regions, file = "CSV_regions.csv")
+#plot(net, size=sz, scale.ratio =2, cex=0.75, pie = regions, bg=brewer.pal(n=12, name="Set3"), threshold = 0, col.link="black")
+#legend("topright", colnames(regions),col=brewer.pal(ncol(regions), name="Set3"), pch=20, cex=0.7)
+
+#col=usecol(pal_unikn_pref)
+mycols <- c("#fabfbd", "#fce6cc", "#e0eed3", "#e1d8e9", "#d6edf8","#eaccd8","#fefbde")
+plot(net, size=sz, scale.ratio =2, cex=0.75, pie = regions, bg = mycols,threshold = 0, col.link="black")
+xy_trap <- list(x=c(71.9171256, 15.3003829, 115.2096901, 113.1091161, 38.4959351,
+                    53.8231244, 56.9306340, 118.7295029, 94.1127099, 83.2170195,
+                    -8.4520770, 106.9047401, -15.0606097, 87.3291249, 0.0000000,
+                    17.7186059, 42.4950721, 0.3525274, 27.8691270, 77.1458774,
+                    112.1127129, 45.5733324, 175.8792380, 146.4886241, 194.7341999,
+                    -1.3540001, 82.1096508, 108.2070211, 24.9897178, -7.3361081,
+                    220.7173830, 8.9436075, 30.6230154, 91.5318280, 164.9220837,
+                    64.3787494, -3.7313406, 141.5066080, 91.6864469, 13.7775298,
+                    86.7044307, 32.1715445, 12.5346775, 80.1759477, 92.6828501,
+                    -24.5655948, 128.6965272, -25.4610692, -32.8016691, 113.7274122,
+                    134.5317854, 101.3335515, 64.8853865), y=c(
+                      187.44148841, 151.24629904, 159.05254276, 78.65494766, -17.80759037,
+                      75.16753639, 34.99541398, 132.85919261, 169.89149155, 80.64775411,
+                      61.71609289, 200.86517541, 5.88088137, 182.56314339, 0.00000000,
+                      0.06946311, 1.61799225, 10.86896656, 22.70293509, 8.40339392,
+                      30.82759300, 223.27504104, 148.40317322, 125.48589911, 178.79347150,
+                      -26.07582636, 132.45619242, 190.39235447, 69.18911705, 23.38975179,
+                      141.42835067, 18.13563635, 90.40032930, 206.02383803, 107.55064111,
+                      85.64638862, -11.62798904, 107.05243950, 16.87794788, -11.62798904,
+                      99.57941533, 11.94151981, 46.27184294, 156.98708209, 63.70889933,
+                      26.92973095, 159.56796398, -18.49436650, 2.92830277, 169.37531517,
+                      57.23227839, 118.00531094, 176.82172192))
+replot(xy=xy_trap)
+legend("left", colnames(regions),col=mycols, pch=20, cex=0.7)
+
+current_plot <- recordPlot()
+pdf("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/CSP_network.pdf")
+replayPlot(current_plot)
+dev.off()
+
+#population genetics
+nuc.div(seqs)
+tajima.test(seqs)
+hap.div(seqs)
+
+######## Figure S4 - Percentage of polyclonal infections ########
 
 csp_trap_finalhaplotypes %>%
   mutate(
@@ -614,57 +887,146 @@ ggsave("MonoPoly_MarkersCombined.pdf", width=6, height=6)
 
 
 
-######## Figure S6 - Mean MOI in both species and at all timepoints ########
+######## Figure S5 - Median MOI at all timepoints in both species ########
 
-a<-csp_trap_finalhaplotypes %>%
+a <- csp_trap_finalhaplotypes %>%
   filter(Species == "human", Day %in% c("0", "2", "7", "14", "21", "28")) %>%
   mutate(Day = as.factor(Day)) %>%
   group_by(Day) %>%
   summarise(
-    Mean_MOI = mean(MOI_Combined, na.rm = TRUE),
-    Lower_CI = Mean_MOI - qt(0.975, n() - 1) * sd(MOI_Combined, na.rm = TRUE) / sqrt(n()),
-    Upper_CI = Mean_MOI + qt(0.975, n() - 1) * sd(MOI_Combined, na.rm = TRUE) / sqrt(n()),
+    Median_MOI = median(MOI_Combined, na.rm = TRUE),
+    IQR_Lower = quantile(MOI_Combined, probs = 0.25, na.rm = TRUE),
+    IQR_Upper = quantile(MOI_Combined, probs = 0.75, na.rm = TRUE),
     MOI_Combined = list(MOI_Combined)
   ) %>%
   unnest(MOI_Combined) %>%
   ggplot(aes(x = Day, y = MOI_Combined)) +
   geom_violin(fill = "grey", alpha = 0.5) +
   geom_jitter(width = 0.15, alpha = 0.5) +
-  geom_line(aes(y = Mean_MOI, group = 1), color = "#a891cf", size = 1) +
-  geom_point(aes(y = Mean_MOI), color = "#a891cf", size = 2) +
+  geom_point(aes(y = Median_MOI), color = "#DF7070", size = 2) + 
+  geom_line(aes(y = Median_MOI, group = 1), color = "#DF7070", size = 1) +
   theme_minimal() +
   scale_y_continuous(breaks = seq(0, 10, by = 1)) +
   labs(x = "Days after treatment initiation", y = "MOI", title = "MOI in human samples")
+
 
 b<-csp_trap_finalhaplotypes %>%
   filter(Species == "mosquito", Day %in% c("0", "2", "7", "14", "21", "28")) %>%
   mutate(Day = as.factor(Day)) %>%
   group_by(Day) %>%
   summarise(
-    Mean_MOI = mean(MOI_Combined, na.rm = TRUE),
-    Lower_CI = Mean_MOI - qt(0.975, n() - 1) * sd(MOI_Combined, na.rm = TRUE) / sqrt(n()),
-    Upper_CI = Mean_MOI + qt(0.975, n() - 1) * sd(MOI_Combined, na.rm = TRUE) / sqrt(n()),
+    Median_MOI = median(MOI_Combined, na.rm = TRUE),
+    IQR_Lower = quantile(MOI_Combined, probs = 0.25, na.rm = TRUE),
+    IQR_Upper = quantile(MOI_Combined, probs = 0.75, na.rm = TRUE),
     MOI_Combined = list(MOI_Combined)
   ) %>%
   unnest(MOI_Combined) %>%
   ggplot(aes(x = Day, y = MOI_Combined)) +
   geom_violin(fill = "grey", alpha = 0.5) +
   geom_jitter(width = 0.15, alpha = 0.5) +
-  geom_line(aes(y = Mean_MOI, group = 1), color = "#f8997c", size = 1) +
-  geom_point(aes(y = Mean_MOI), color = "#f8997c", size = 2) +
+  geom_point(aes(y = Median_MOI), color = "#DF7070", size = 2) +
+  geom_line(aes(y = Median_MOI, group = 1), color = "#DF7070", size = 1) +
   theme_minimal() +
   scale_y_continuous(breaks = seq(0, 10, by = 1)) +
   labs(x = "Days after treatment initiation", y = "MOI", title = "MOI in mosquito samples")
 
 
 combined_clonality_plot <- b + a + plot_layout(ncol=1)
-ggsave("Mean_MOI_species_timepoints.pdf", combined_clonality_plot, width=7, height=10)
+ggsave("Median_MOI_species_timepoints.pdf", combined_clonality_plot, width=7, height=10)
 
 
 
 
 
-######## Figure S7 - Haplotype count in human and mosquito hosts ########
+######## Figure S6 - Gametocyte densities, mosquito infection rates and oocyst densities at each MOI ########
+a<-ggplot(merge_clinical_haplotypes,aes(x=as.factor(MOI_Combined), y=totalgct_ul)) + 
+  geom_boxplot(alpha = 0.5, fill="grey")+
+  theme_classic()+
+  #geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  labs(x= "MOI human blood",y="Gametocytes per µL")+
+  scale_y_log10()+
+  annotation_logticks(sides = "l")
+  
+
+b<-ggplot(merge_clinical_haplotypes, aes(x=as.factor(MOI_Combined), y=percentagemosqinfected)) + 
+  geom_boxplot(alpha = 0.5,fill="grey")+
+  theme_classic()+
+  #geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  labs(x= "MOI human blood",y="Mosquito infection rate (%)")
+
+c<-ggplot(merge_oocyst_individual_haplotypes, aes(x=as.factor(MOI_Combined), y=oocysts)) + 
+  geom_boxplot(alpha = 0.5, fill="grey")+
+  theme_classic()+
+  #geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
+  theme(legend.position = "none")+
+  labs(x= "MOI human blood",y="Oocyst density")
+
+FigureS6<-a+b+c + plot_layout(ncol=1)
+ggsave("FigureS6.pdf", FigureS6, width=5, height=12)
+
+######## Figure S7 - Baseline MOI by age group and month ########
+x<-merge_clinical_haplotypes %>%
+  mutate(
+    age_group = case_when(
+      age >= 5 & age < 10 ~ "5-10",
+      age >= 10 & age < 15 ~ "10-15",
+      age >= 15 ~ ">15"
+    ),
+    age_group = factor(age_group, levels = c("5-10", "10-15", ">15"))
+  ) %>%
+  filter(Day == "0") %>%
+  ggplot(aes(x = age_group, y = MOI_Combined)) +
+  geom_boxplot(fill="grey")+
+  geom_jitter(width=0.1)+
+  theme_classic() +
+  theme(legend.position = "none") +
+  labs(x = "Age group", y = "MOI") +
+  scale_y_continuous(breaks = c(1, 2, 3,4,5,6,7,8,9)) 
+
+
+# Perform pairwise Wilcoxon Rank Sum test
+prepared_data <- merge_clinical_haplotypes %>%
+  mutate(
+    age_group = case_when(
+      age >= 5 & age < 10 ~ "5-10",
+      age >= 10 & age < 15 ~ "10-15",
+      age >= 15 ~ ">15"
+    )
+  ) %>%
+  mutate(age_group = factor(age_group, levels = c("5-10", "10-15", ">15")))
+
+pairwise.wilcox.test(prepared_data$MOI_Combined, prepared_data$age_group, p.adjust.method = "bonf",paired=FALSE)
+
+
+
+y<-merge_clinical_haplotypes %>%
+  mutate(
+    visitdate_hb = as.Date(visitdate_hb, format="%d/%m/%Y"),
+    month = format(visitdate_hb, "%m"),
+    month_group = case_when(
+      month =="09" ~ "Sep",
+      month ==10 ~ "Oct",
+      month ==11 ~ "Nov",
+      month ==12 ~ "Dec",
+    ),
+    month_group = factor(month_group, levels = c("Sep", "Oct", "Nov","Dec"))
+  ) %>%
+  filter(month_group %in% c("Sep", "Oct", "Nov")) %>%
+  filter(Day == "0") %>%
+  ggplot(aes(x=month_group, y=MOI_Combined)) + 
+  geom_boxplot(fill="grey")+
+  geom_jitter(width=0.1)+
+  theme_classic()+
+  theme(legend.position = "none")+
+  scale_y_continuous(breaks = c(1, 2, 3,4,5,6,7,8,9)) +
+  labs(x= "Month",y="MOI")
+
+
+FigureS7<-x+y+plot_layout(ncol=1)
+ggsave("FigureS7.pdf", FigureS7, width=6, height=9)
+######## Figure S8 - Haplotype count in human and mosquito hosts ########
 csp_grouped_df <- csp_matching_haplotypes_molten %>%
   group_by(Haplotype, Comparison) %>%
   summarise(Count = n()) %>%
@@ -713,155 +1075,13 @@ ggsave("Haplotypes_transmission.pdf", combined_plot, width=5, height=7)
 
 
 
-######## Check relation between individual clonality and gametocytemia ########
-ggplot(merge_clinical_haplotypes, aes(x=as.factor(MOI_Combined), y=totalgct_ul)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI",y="Gametocyte density")+
-  scale_y_log10()+
-  ggtitle("MOI human ~ Gametocytaemia")
-ggsave("Clonaty_GC.pdf", width=6, height=5)
-
-#For Day0 only
-ggplot(merge_clinical_haplotypes[merge_clinical_haplotypes$Day=="0",], aes(x=as.factor(MOI_Combined), y=totalgct_ul)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI",y="Gametocyte density")+
-  scale_y_log10()+
-  ggtitle("Clonality ~ Gametocytaemia")
-
-#Monoclonal versus polyclonal
-merge_clinical_haplotypes %>%
-  mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal")) %>%
-  group_by(MonoPoly) %>%
-  summarise(
-    Mean_GC = mean(totalgct_ul, na.rm = TRUE),
-    Lower_CI = Mean_GC - qt(0.975, n() - 1) * sd(totalgct_ul, na.rm = TRUE) / sqrt(n()),
-    Upper_CI = Mean_GC + qt(0.975, n() - 1) * sd(totalgct_ul, na.rm = TRUE) / sqrt(n()),
-    totalgct_ul = list(totalgct_ul)
-  ) %>%
-  unnest(totalgct_ul) %>%
-  ggplot(aes(x = as.factor(MonoPoly), y = totalgct_ul)) + 
-  geom_violin(alpha = 0.5, fill = "grey") + 
-  geom_jitter(position = position_jitter(width = 0.3, height = 0.2), alpha = 0.5) +
-  geom_point(aes(y = Mean_GC), color = "#f8997c", size = 2) +
-  scale_y_log10() + 
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "MOI", y = "Gametocyte density (log scale)") +  # Update y-axis label
-  ggtitle("MOI human ~ Gametocytaemia")
-ggsave("Infection_rate_MonoPolyclonal.pdf", width=6, height=5)
-
-# Assuming merge_clinical_haplotypes is your dataframe
-test_data <- merge_clinical_haplotypes %>%
-  mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal"))
-
-# Perform the Wilcoxon rank-sum test
-wilcox_test_result <- wilcox.test(totalgct_ul ~ MonoPoly, data = test_data, exact = FALSE)
-
-# Print the result
-print(wilcox_test_result)
-
-
-######## Check relation between individual clonality and infection rates ########
-ggplot(merge_clinical_haplotypes, aes(x=as.factor(MOI_Combined), y=percentagemosqinfected)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI",y="Infected Mosquitoes (%)")+
-  ggtitle("MOI human ~ mosquito infection rate")
-ggsave("Infection_rate_clonality.pdf", width=6, height=5)
-
-#Monoclonal versus polyclonal
-merge_clinical_haplotypes %>%
-  mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
-  ggplot(aes(x=as.factor(MonoPoly), y=percentagemosqinfected)) + 
-    geom_boxplot(alpha = 0.5, outlier.shape = NA, fill="grey")+
-    theme_classic()+
-    geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-    theme(legend.position = "none")+
-    labs(x= "MOI",y="Infected Mosquitoes (%)")+
-    ggtitle("Individual clonality ~ infection rate")
-ggsave("Infection_rate_MonoPolyclonal.pdf", width=6, height=5)
-
-######## Check relation between clonality and infection rates (individuals only) - normalised by GC ########
-merge_clinical_haplotypes %>%
-  mutate(normalized_infection_rate = (percentagemosqinfected / totalgct_ul) * 100) %>%
-  ggplot(aes(x=as.factor(MOI_Combined), y=normalized_infection_rate)) + 
-    geom_boxplot(alpha = 0.5, outlier.shape = NA, fill="grey")+
-    theme_classic()+
-    geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-    theme(legend.position = "none")+
-    labs(x= "MOI",y="Infected Mosquitoes (%)")+
-    ggtitle("Individual clonality ~ infection rate (normalised by GC density)")
-ggsave("Infection_rate_clonality_Normalised_by_GC.pdf", width=6, height=5)
-
-#Monoclonal versus polyclonal
-merge_clinical_haplotypes %>%
-  mutate(normalized_infection_rate = (percentagemosqinfected / totalgct_ul) * 100,
-         MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
-  ggplot(aes(x=as.factor(MonoPoly), y=normalized_infection_rate)) + 
-    geom_boxplot(alpha = 0.5, outlier.shape = NA, fill="grey")+
-    theme_classic()+
-    geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-    theme(legend.position = "none")+
-    labs(x= "MOI",y="Infected Mosquitoes (%)")+
-    ggtitle("Individual clonality ~ infection rate (normalised by GC density)")
-ggsave("Infection_rate_MonoPolyclonal_Normalised_by_GC.pdf", width=6, height=5)
 
 
 
-######## Check relation between individual clonality and oocyst number (mosquitoes only) ########
-ggplot(merge_oocyst_individual_haplotypes, aes(x=as.factor(MOI_Combined), y=oocysts)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI individual",y="Oocyst number")+
-  ggtitle("Individual clonality ~ oocyst number")
-ggsave("Individual_Clonality_Oocyst_number.pdf", width=6, height=5)
 
-#Monoclonal versus polyclonal
-merge_oocyst_individual_haplotypes %>%
-  mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
-  ggplot(aes(x=as.factor(MonoPoly), y=oocysts)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI individual",y="Oocyst number")+
-  ggtitle("Individual clonality ~ oocyst number")
-ggsave("Individual_Clonality_MonoPoly_Oocyst_number.pdf", width=6, height=5)
 
-######## Check relation between individual clonality and oocyst number (mosquitoes only) - normalised by GC ########
-merge_oocyst_clinical_individual_haplotypes %>%
-  mutate(normalized_oocysts = (oocysts / totalgct_ul) * 100) %>%
-  ggplot(aes(x=as.factor(MOI_Combined), y=normalized_oocysts)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI individual",y="Oocyst number")+
-  ggtitle("Individual clonality ~ oocyst number (normalised by GC)")
-ggsave("Individual_Clonality_Oocyst_number_normalised_by_GC.pdf", width=6, height=5)
 
-#Monoclonal versus polyclonal
-merge_oocyst_clinical_individual_haplotypes %>%
-  mutate(normalized_oocysts = (oocysts / totalgct_ul) * 100) %>%
-  mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
-  ggplot(aes(x=as.factor(MonoPoly), y=normalized_oocysts)) + 
-  geom_boxplot(alpha = 0.5, outlier.shape = NA)+
-  theme_classic()+
-  geom_jitter(position=position_jitter(width=0.3, height=0.2), alpha=0.5)+
-  theme(legend.position = "none")+
-  labs(x= "MOI individual",y="Oocyst number")+
-  ggtitle("Individual clonality ~ oocyst number (normalised by GC)")
-ggsave("Individual_Clonality_MonoPoly_Oocyst_number_normalised_by_GC.pdf", width=6, height=5)
+
 
 
 
@@ -904,46 +1124,6 @@ pie(haplotype_counts, labels = paste(names(haplotype_counts), "(", haplotype_cou
 pie(haplotype_counts, labels = paste(names(haplotype_counts), "(", haplotype_counts, ")", sep = ""), main = "Haplotype Distribution")
 
 
-######## Check relation between clonality and age (individuals only) at Day 0 ########
-merge_clinical_haplotypes %>%
-  mutate(
-    age_group = case_when(
-      age < 5 ~ "<5",
-      age >= 5 & age < 10 ~ "5-10",
-      age >= 10 & age < 15 ~ "10-15",
-      age >= 15 & age < 20 ~ "15-20",
-      age >= 20 ~ ">20"
-    ),
-    age_group = factor(age_group, levels = c("<5", "5-10", "10-15", "15-20", ">20"))
-  ) %>%
-  group_by(age_group) %>%
-  mutate(mean_MOI_by_age = mean(MOI_Combined, na.rm = TRUE)) %>%
-  ungroup() %>%
-  filter(Day == "0") %>%
-  ggplot(aes(x = age, y = mean_MOI_by_age)) +
-  geom_line() +
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "Age", y = "Mean MOI") +
-  scale_y_continuous(limits = c(1, 3), breaks = c(1, 2, 3)) +
-  ggtitle("Mean clonality by age")
-ggsave("Clonality_by_agegroup.pdf", width=6, height=5)
-
-merge_clinical_haplotypes %>%
-  group_by(age) %>%
-  mutate(mean_MOI_by_age = mean(MOI_Combined, na.rm = TRUE)) %>%
-  ungroup() %>%
-  filter(Day == "0") %>%
-  ggplot(aes(x = age, y = mean_MOI_by_age)) +
-  geom_line() +
-  geom_point()+
-  theme_classic() +
-  theme(legend.position = "none") +
-  labs(x = "Age", y = "Mean MOI") +
-  scale_y_continuous(limits = c(1, 4), breaks = c(1, 2, 4)) +
-  ggtitle("Mean clonality by age")
-ggsave("Clonality_by_age.pdf", width=6, height=5)
-
 ######## Check relation between midgut clonality and oocyst number (mosquitoes only) ########
 ggplot(merge_oocyst_haplotypes, aes(x=as.factor(MOI_Combined), y=oocysts)) + 
   geom_boxplot(alpha = 0.5, outlier.shape = NA,fill="grey")+
@@ -967,20 +1147,6 @@ merge_oocyst_haplotypes %>%
     labs(x= "MOI midgut",y="Oocyst number")+
     ggtitle("Midgut clonality ~ oocyst number")
 ggsave("MidgutMonoPoly_oocystnumber.pdf", width=6, height=5)
-
-######## Check relation between clonality and month (individuals only) ########
-merge_clinical_haplotypes %>%
-  mutate(visitdate_hb = as.Date(visitdate_hb, format="%d/%m/%Y")) %>%
-  group_by(visitdate_hb) %>%
-  mutate(mean_MOI_by_time = mean(MOI_Combined, na.rm = TRUE)) %>%
-  ungroup() %>%
-  ggplot(aes(x=visitdate_hb, y=mean_MOI_by_time)) + 
-    geom_line()+
-    theme_classic()+
-    theme(legend.position = "none")+
-    labs(x= "Visitdate",y="Mean MOI")+
-    ggtitle("Mean clonality over time (individuals only)")
-ggsave("Clonality_by_month.pdf", width=6, height=5)
 
 
 
