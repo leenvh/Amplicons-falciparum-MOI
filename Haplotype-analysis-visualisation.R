@@ -5,7 +5,6 @@ author: "Leen Vanheer"
 ---
   
 #Load libraries
-require(dplyr)
 library(tidyr)
 library(stringr)
 library(ggplot2)
@@ -24,6 +23,7 @@ library(ape)
 library(pegas)
 library(Biostrings)
 library(lubridate)
+require(dplyr)
 
 # set seed for reproducibility
 set.seed(0)
@@ -32,6 +32,8 @@ set.seed(0)
 pal1<-c("mosquito_only"="#f8997c","human_only"= "#a891cf", "matching" = "lightgrey")
 pal2<-c("lightgrey", "grey48")
 pal3<-c("monoclonal"="#9AC77B","polyclonal"='#7EC2DE')
+pal4 <- c("#8dd3c6","#fccde5", "#f98073", "#80b0d3")
+pal5 <- c("#4c9184", "#bf6b96", "#a8392d","#3373a1")
 
 ################################################### Functions ###################################################
 process_data <- function(data, type) {
@@ -41,7 +43,7 @@ process_data <- function(data, type) {
     mutate(SampleID = gsub("(.*)_.*", "\\1", SampleID),
            Reads = as.numeric(Reads)) %>%
     group_by(SampleID, SampleName) %>%
-    summarise(Haplotype = paste(Haplotype, collapse = " "),
+    dplyr::summarise(Haplotype = paste(Haplotype, collapse = " "),
               Reads = paste(Reads, collapse = " ")) %>%
     ungroup()
   
@@ -82,7 +84,7 @@ process_data <- function(data, type) {
 process_haplotypes <- function(data) {
   data %>%
     group_by(SampleID) %>%
-    summarise(Haplotype = paste(Matching_Values, collapse = " "),
+    dplyr::summarise(Haplotype = paste(Matching_Values, collapse = " "),
               Reads = paste(Average_Reads, collapse = " ")) %>%
     mutate(MOI = str_count(Haplotype, " ") + 1)
 }
@@ -105,14 +107,14 @@ calculate_reads <- function(data) {
 # Function to split and process human haplotypes for further data analysis
 process_human <- function(data) {
   data_split <- data %>%
-    mutate(Individual = str_extract(SampleID, "^[^_]+"),
+    dplyr::mutate(Individual = str_extract(SampleID, "^[^_]+"),
            Day = str_extract(SampleID, "_([^_]+)$"),
            Day = str_replace_all(Day, "_", ""), 
            Day = as.numeric(str_sub(Day, 4)),
            Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)),
            Timepoint = SampleID,
            MOI_Combined = pmax(trap_MOI,csp_MOI, na.rm = TRUE)) %>%
-    select(Individual, Day, Timepoint, everything())
+    dplyr::select(Individual, Day, Timepoint, everything())
   
   return(data_split)
 }
@@ -120,7 +122,7 @@ process_human <- function(data) {
 # Function to split and process mosquito haplotypes for further data analysis
 process_mosquito <- function(data) {
   data_split <- data %>%
-    mutate(Individual = str_extract(SampleID, "^[^_]+"),
+    dplyr::mutate(Individual = str_extract(SampleID, "^[^_]+"),
            Day = str_extract(SampleID, "_([^_]*)_"),  # Capture value between underscores
            Mosquito = str_extract(SampleID, "_([^_]+)$"),
            Day = str_replace_all(Day, "_", ""), 
@@ -130,7 +132,7 @@ process_mosquito <- function(data) {
            Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35)),
            MOI_Combined = pmax(trap_MOI,csp_MOI, na.rm = TRUE)) %>%
     
-    select(Individual, Day, Mosquito, Timepoint, everything())
+    dplyr::select(Individual, Day, Mosquito, Timepoint, everything())
   
   return(data_split)
 }
@@ -139,7 +141,7 @@ process_mosquito <- function(data) {
 melt_data <- function(data) {
   data %>%
     separate_rows(Haplotype, Reads, Percentage, sep = " ")%>%
-    mutate(Timepoint = gsub("_Mosq\\d+", "", SampleID),
+    dplyr::mutate(Timepoint = gsub("_Mosq\\d+", "", SampleID),
          Day = str_extract(Timepoint, "_([^_]+)$"),  
          Day = str_replace_all(Day, "_", ""), 
          Day = as.numeric(str_sub(Day, 4)),
@@ -167,14 +169,24 @@ determine_sample_type <- function(group) {
 process_data2 <- function(data) {
   data %>%
     group_by(Timepoint) %>%
-    filter("human" %in% species & "mosquito" %in% species) %>%
+    dplyr::filter("human" %in% species & "mosquito" %in% species) %>%
     ungroup() %>%
     group_by(Timepoint, Haplotype) %>%
-    mutate(Comparison = determine_sample_type(cur_data()),
+    dplyr::mutate(Comparison = determine_sample_type(cur_data()),
            Day = str_extract(Timepoint, "_([^_]+)$"),  
            Day = str_replace_all(Day, "_", ""), 
            Day = as.numeric(str_sub(Day, 4)),
            Day = factor(Day, levels = c(0, 2, 7, 14, 21, 28, 35))) %>%
+    ungroup()
+}
+
+process_data3 <- function(data) {
+  data %>%
+    group_by(Day, Individual) %>%
+    dplyr::filter("human" %in% species & "mosquito" %in% species) %>%
+    ungroup() %>%
+    group_by(Day, Individual, Haplotype) %>%
+    dplyr::mutate(Comparison = determine_sample_type(cur_data())) %>%
     ungroup()
 }
 
@@ -187,7 +199,7 @@ calculate_haplotype_fractions <- function(data, haplotype_column) {
   # Step 2: Count unique samples for each haplotype and species
   haplotype_counts <- expanded_df %>%
     group_by(!!sym(haplotype_column), Species) %>%
-    summarise(count = n_distinct(SampleID), .groups = 'drop')
+    dplyr::summarise(count = n_distinct(SampleID), .groups = 'drop')
   
   # Step 3: Calculate the percentage for each species
   total_samples_human <- n_distinct(data$SampleID[data$Species == "human"])
@@ -198,7 +210,7 @@ calculate_haplotype_fractions <- function(data, haplotype_column) {
       Species == "human" ~ (count / total_samples_human) * 100,
       Species == "mosquito" ~ (count / total_samples_mosquito) * 100
     )) %>%
-    select(haplotype = !!sym(haplotype_column), Species, frac_sample)
+    dplyr::select(haplotype = !!sym(haplotype_column), Species, frac_sample)
 }
 
 # Function to extract sequence by haplotype and write to file
@@ -232,6 +244,12 @@ oocystdata<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequenc
 TRAP_haplotypes <- readDNAStringSet("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/trap_HaplotypeSeq_merge.fasta", format="fasta")
 CSP_haplotypes <- readDNAStringSet("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/csp_HaplotypeSeq_merge.fasta", format="fasta")
 labstrain_ratios_data<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/Paper_AmpSeq/Labstrain_Ratios_Data.csv",header=TRUE,sep=',')
+variants_Exp51<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/variants_Exp51.csv")
+variants_Exp52<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/variants_Exp52.csv")
+coverage_Exp51<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/coverage_report_Exp51.csv")
+coverage_Exp52<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/coverage_report_Exp52.csv")
+missing_positions_Exp51<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/missing_positions_report_Exp51.csv")
+missing_positions_Exp52<-read.csv("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/MinION/missing_positions_report_Exp52.csv")
 
 # Initial processing
 trap_processed <- process_data(trap_raw, "trap")
@@ -291,6 +309,18 @@ trap_merge_clinical_haplotypes_molten <- trap_haplotypes_molten %>%
     percentagemosqinfected = (mosq_pos / mosq_total) * 100,
     transmission = ifelse(percentagemosqinfected > 0, 1, 0)
   )
+csp_merge_clinical_matching_haplotypes_molten <- csp_matching_haplotypes_molten %>%
+  merge(clinicaldata, by = "SampleID") %>%
+  mutate(
+    percentagemosqinfected = (mosq_pos / mosq_total) * 100,
+    transmission = ifelse(percentagemosqinfected > 0, 1, 0)
+  )
+trap_merge_clinical_matching_haplotypes_molten <- trap_matching_haplotypes_molten %>%
+  merge(clinicaldata, by = "SampleID") %>%
+  mutate(
+    percentagemosqinfected = (mosq_pos / mosq_total) * 100,
+    transmission = ifelse(percentagemosqinfected > 0, 1, 0)
+  )
 
 # Combine oocyst data and haplotype data
 oocystdata$SampleID<-paste(oocystdata$studycode,"_Day",oocystdata$studyvisit,sep="")
@@ -324,8 +354,30 @@ merge_oocyst_individual_haplotypes <- merge_oocyst_individual_haplotypes[!is.na(
 # Combine oocyst, clinical and haplotype data
 merge_oocyst_clinical_individual_haplotypes<-merge(merge_oocyst_individual_haplotypes,clinicaldata,by="SampleID")
 
+# Edit drug resistance data
+variants_Exp52<-variants_Exp52 %>%
+  mutate(uniqueid = sub("^([^_]+_[^_]+_)(.*)", "\\2", sample_id)) %>%
+  group_by(genome_pos, gene, protein_change) %>%
+  mutate(species="human",
+         mosqid=NA)%>%
+  filter(!grepl("fs", protein_change))%>%
+  ungroup() %>%
+  dplyr::select(1:10, 13, 11, 12)
 
+variants_Exp51<-variants_Exp51 %>%
+  mutate(mosqid = sub("^([^_]+_[^_]+_)(.*)", "\\2", sample_id),
+         uniqueid = sub("^([^_]+).*", "\\1",  mosqid)) %>%
+  group_by(genome_pos, gene, protein_change) %>%
+  mutate(species="mosquito")%>%
+  filter(!grepl("fs", protein_change))
 
+combined_variants<-rbind(variants_Exp52,variants_Exp51)
+combined_coverage<-rbind(coverage_Exp51,coverage_Exp52)
+combined_missing_positions<-rbind(missing_positions_Exp51,missing_positions_Exp52) %>%
+  mutate(sample_id = Sample.Name,
+         gene=Gene,
+         protein_change = Variants) %>%
+  dplyr::select(sample_id,gene,protein_change)
 ################################################### Data visualisation ############################################################
 
 ######## Figure 1 - Polyclonal infections have increased gametocyte densities and cause higher oocyst density infections ########
@@ -333,7 +385,7 @@ merge_oocyst_clinical_individual_haplotypes<-merge(merge_oocyst_individual_haplo
 a<-merge_clinical_haplotypes %>%
   mutate(MonoPoly = ifelse(MOI_Combined == 1, "monoclonal", "polyclonal")) %>%
   group_by(MonoPoly) %>%
-  summarise(
+  dplyr::summarise(
     Mean = mean(totalgct_ul, na.rm = TRUE),
     Min = min(totalgct_ul, na.rm = TRUE),
     Max = max(totalgct_ul, na.rm = TRUE),
@@ -362,7 +414,7 @@ merge_clinical_haplotypes %>%
 b<-merge_clinical_haplotypes %>%
   mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
   group_by(MonoPoly) %>%
-  summarise(
+  dplyr::summarise(
     Median_InfRate = median(percentagemosqinfected, na.rm = TRUE),
     IQR_Lower = quantile(percentagemosqinfected, probs = 0.25, na.rm = TRUE),
     IQR_Upper = quantile(percentagemosqinfected, probs = 0.75, na.rm = TRUE),
@@ -390,7 +442,7 @@ merge_clinical_haplotypes %>%
 c<-merge_oocyst_individual_haplotypes %>%
   mutate(MonoPoly = ifelse(MOI_Combined=="1","monoclonal","polyclonal"))%>%
   group_by(MonoPoly) %>%
-  summarise(
+  dplyr::summarise(
     Median_oocysts = median(oocysts, na.rm = TRUE),
     IQR_Lower = quantile(oocysts, probs = 0.25, na.rm = TRUE),
     IQR_Upper = quantile(oocysts, probs = 0.75, na.rm = TRUE),
@@ -464,7 +516,7 @@ ggsave("Figure1A.pdf", a , width=4.6, height=6)
 ######## Figure 2A - Haplotype prevalence in human vs mosquito samples ########
 csp_trap_frac %>%
   group_by(haplotype) %>%
-  summarise(frac_sample_human = sum(frac_sample[Species == "human"], na.rm = TRUE),
+  dplyr::summarise(frac_sample_human = sum(frac_sample[Species == "human"], na.rm = TRUE),
             frac_sample_mosquito = sum(frac_sample[Species == "mosquito"], na.rm = TRUE),
             .groups = 'drop') %>%
   mutate(marker = sub("-.*", "", haplotype),
@@ -486,7 +538,79 @@ ggsave("Haplotype_prevalence_humans_mosquitoes.pdf", width=7, height=5)
 
 
 
-######## Figure 2B - Percentage matching clones/human only/mosquito only at each timepoint ########
+######## Figure 2B - Evidence of transmission of minority clones in polyclonal infections ########
+
+#Check if matching haplotypes in multiclonal individuals more often have high or low coverage at Day0?
+test<-csp_merge_clinical_matching_haplotypes_molten %>%
+  filter(MOI > 1,
+         species == "human")
+
+# Filtering the human-only rows
+human_only_df <- test %>%
+  filter(Comparison == "human_only") %>%
+  mutate(Percentage = as.numeric(Percentage)) %>%
+  group_by(SampleID, Comparison, Day)%>%
+  dplyr::summarise(TotalPercentage = sum(Percentage, na.rm = TRUE))
+
+# Filtering the matching rows
+non_human_only_df <- test %>%
+  filter(Comparison != "human_only") %>%
+  mutate(TotalPercentage = as.numeric(Percentage)) %>%
+  group_by(SampleID, Comparison, Day)
+
+# Binding the two dataframes together
+filtered_df <- bind_rows(human_only_df, non_human_only_df) %>%
+  filter(Day%in% c(0,2,7,14))
+
+
+ggplot(filtered_df, aes(x=Comparison,y=as.numeric(TotalPercentage))) + 
+  geom_boxplot()+
+  geom_jitter(width = 0.2, height = 0, alpha = 0.5, size = 2) +
+  theme_classic()+
+  xlab("Type")+
+  ylab("Percentage of total reads")+
+  facet_wrap(~Day,ncol=4)+
+  ggtitle("CSP")
+ggsave("Percentage_Reads_Human_only_vs_matching_CSP.pdf", width=4, height=3)
+
+######## Figure 2C - Evidence of transmission of minority clones in polyclonal infections - comparing to day 0 mosquito clones########
+
+#Check if matching haplotypes in multiclonal individuals more often have high or low coverage at Day0?
+test<-csp_plotme %>%
+  filter(MOI > 1,
+         species == "human")
+
+# Filtering the human-only rows
+human_only_df <- test %>%
+  filter(Comparison == "human_only") %>%
+  mutate(Percentage = as.numeric(Percentage)) %>%
+  group_by(SampleID, Comparison, Day)%>%
+  dplyr::summarise(TotalPercentage = sum(Percentage, na.rm = TRUE))
+
+# Filtering the matching rows
+non_human_only_df <- test %>%
+  filter(Comparison != "human_only") %>%
+  mutate(TotalPercentage = as.numeric(Percentage)) %>%
+  group_by(SampleID, Comparison, Day)
+
+# Binding the two dataframes together
+filtered_df <- bind_rows(human_only_df, non_human_only_df)%>%
+  filter(Day%in% c(0,2,7,14))
+
+
+ggplot(filtered_df, aes(x=Comparison,y=as.numeric(TotalPercentage))) + 
+  geom_boxplot()+
+  geom_jitter(width = 0.2, height = 0, alpha = 0.5, size = 2) +
+  theme_classic()+
+  xlab("Type")+
+  ylab("Percentage of total reads")+
+  facet_wrap(~Day,ncol=4)+
+  ggtitle("CSP")
+ggsave("Percentage_Reads_Human_only_vs_matching_ComparedtoDay0Mosq_CSP.pdf", width=4, height=3)
+
+
+
+######## Figure 2D - Percentage matching clones/human only/mosquito only at each timepoint ########
 a<- ggplot(csp_matching_haplotypes_molten[csp_matching_haplotypes_molten$Day%in% c("0","2","7","14"),], aes(x=as.factor(Day),fill=factor(Comparison))) + 
   geom_bar(position="fill", stat="count")+
   theme_classic()+
@@ -510,145 +634,332 @@ b<- ggplot(trap_matching_haplotypes_molten[trap_matching_haplotypes_molten$Day%i
 combined_plot <- a + b + plot_layout(ncol=2, widths=c(1.1, 1))
 ggsave("Fig1B_Matching_Haplotypes_Percentages.pdf", combined_plot, width=14, height=6)
 
+#Combined
+csp_data_prepared <- csp_matching_haplotypes_molten %>%
+  filter(Day %in% c("0", "2", "7", "14")) %>%
+  group_by(Day, Comparison) %>%
+  dplyr::summarise(Count = n(), .groups = "drop") %>%
+  mutate(Source = "csp")
 
+trap_data_prepared <- trap_matching_haplotypes_molten %>%
+  filter(Day %in% c("0", "2", "7", "14")) %>%
+  group_by(Day, Comparison) %>%
+  dplyr::summarise(Count = n(), .groups = "drop") %>%
+  mutate(Source = "trap") 
 
-######## Figure 2C - Percentage matching clones/human only/mosquito comparing day 0 mosquito clones to all human timepoints ########
-individuals_with_day0_mosquito<-csp_haplotypes_molten %>%
-  filter(species == "mosquito", Day == 0) %>%
-  select(Individual) %>%
-  distinct()
+combined_data <- bind_rows(csp_data_prepared, trap_data_prepared) %>%
+  group_by(Day, Comparison) %>%
+  dplyr::summarise(AvgCount = mean(Count), .groups = "drop")
 
-# Step 2: Filter human samples for those individuals
-human_samples_for_matching_individuals <- csp_haplotypes_molten %>%
-  filter(species == "human") %>%
-  semi_join(individuals_with_day0_mosquito, by = "Individual")
-
-# Step 3: Identify haplotypes in day 0 mosquito samples for matching
-mosquito_day0_haplotypes <- csp_haplotypes_molten %>%
-  filter(species == "mosquito", Day == 0) %>%
-  select(Individual, Haplotype) %>%
-  distinct()
-
-# Annotate human samples
-annotated_human_samples <- human_samples_for_matching_individuals %>%
-  rowwise() %>%
-  mutate(Status = case_when(
-    Haplotype %in% mosquito_day0_haplotypes$Haplotype[mosquito_day0_haplotypes$Individual == Individual] ~ "matching",
-    TRUE ~ "human_only"
-  )) %>%
-  ungroup() 
-
-a<-ggplot(annotated_human_samples[annotated_human_samples$Day%in% c("0","2","7","14","21","28","35"),], aes(x=as.factor(Day),fill=factor(Status))) + 
-  geom_bar(position="fill", stat="count")+
-  theme_classic()+
-  xlab("Days after treatment initiation")+
-  ylab("Haplotype percentage compared to Day 0 mosquito")+
-  ggtitle("csp")+
-  theme(legend.position="none",
-        axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10))+
-  scale_fill_manual(values=pal1)
-
-# 3 instances of mosquito-only clones in day 0 mosquitoes (that were not found at any human timepoint)
-mosquito_human_comparison <- mosquito_day0_haplotypes %>%
-  left_join(
-    annotated_human_samples %>% 
-      select(Individual, Haplotype, Status, Day) %>%
-      distinct(Individual, Haplotype, .keep_all = TRUE) %>%
-      mutate(human_present = TRUE),
-    by = c("Individual", "Haplotype")
-  ) %>%
-  mutate(
-    Day = as.numeric(as.character(Day)),  
-    Status = if_else(is.na(human_present), "mosquito_only", "matching"),
-    Day = if_else(Status == "mosquito_only", 0, Day)  
+ggplot(combined_data, aes(x = as.factor(Day), y = AvgCount, fill = factor(Comparison))) +
+  geom_bar(position="fill", stat="identity") +
+  theme_classic() +
+  xlab("Days after treatment initiation") +
+  ylab("Haplotype Percentage (%)")+
+  scale_fill_manual(values = pal1) +
+  theme(legend.position = "right",
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12), 
+        panel.border = element_rect(colour = "black", fill=NA, linewidth = 2), # Add border
+        plot.margin = margin(5.5, 5.5, 5.5, 5.5) # Optional: Adjust plot margin
   )
+ggsave("Fig2D_Matching_Haplotypes_Percentages_bothMarkers.pdf",width=7, height=5)
 
-b<-ggplot(mosquito_human_comparison[mosquito_human_comparison$Day%in% c("0","2","7","14","21","28","35"),], aes(x=as.factor(Day),fill=factor(Status))) + 
-  geom_bar(position="fill", stat="count")+
-  theme_classic()+
-  xlab("Days after treatment initiation")+
-  ylab("Haplotype percentage compared to Day 0 mosquito")+
-  ggtitle("csp")+
-  theme(legend.position="none",
-        axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10))+
-  scale_fill_manual(values=pal1)
+######## Figure 2E - Percentage matching clones/human only/mosquito comparing day 0 mosquito clones to all human timepoints ########
 
+#csp
+csp_haplotypes_molten_filter<-csp_haplotypes_molten %>%
+  filter(species=="human" | Day==0)
+
+mosquito_day0 <- csp_haplotypes_molten_filter %>%
+  filter(species == "mosquito", Day == 0)
+
+human_timepoints_individuals <- csp_haplotypes_molten_filter %>%
+  filter(species == "human") %>%
+  dplyr::select(SampleID, Day, Timepoint, Individual) %>%
+  distinct()
+
+# Replicate Day 0 mosquito samples for each Day present in the human samples
+expanded_mosquito_samples <- mosquito_day0 %>%
+  # Perform a full join to replicate mosquito data for each human timepoint
+  full_join(human_timepoints_individuals, by = "Individual") %>%
+  mutate(species = "mosquito",
+         SampleID = SampleID.x,
+         Day = Day.y) %>% 
+  # Retain necessary columns and arrange for clarity
+  dplyr::select(SampleID, Haplotype, Reads, MOI, TotalReads, Percentage, species, Day, Individual) %>%
+  arrange(SampleID, Individual, Day)
+
+csp_plotme <- bind_rows(csp_haplotypes_molten_filter, expanded_mosquito_samples) %>%
+  arrange(SampleID, Individual, Day) %>%
+  filter(!is.na(SampleID)) %>%
+  process_data3()
 
 #trap
-individuals_with_day0_mosquito<-trap_haplotypes_molten %>%
-  filter(species == "mosquito", Day == 0) %>%
-  select(Individual) %>%
-  distinct()
+trap_haplotypes_molten_filter<-trap_haplotypes_molten %>%
+  filter(species=="human" | Day==0)
 
-# Step 2: Filter human samples for those individuals
-human_samples_for_matching_individuals <- trap_haplotypes_molten %>%
+mosquito_day0 <- trap_haplotypes_molten_filter %>%
+  filter(species == "mosquito", Day == 0)
+
+human_timepoints_individuals <- trap_haplotypes_molten_filter %>%
   filter(species == "human") %>%
-  semi_join(individuals_with_day0_mosquito, by = "Individual")
-
-# Step 3: Identify haplotypes in day 0 mosquito samples for matching
-mosquito_day0_haplotypes <- trap_haplotypes_molten %>%
-  filter(species == "mosquito", Day == 0) %>%
-  select(Individual, Haplotype) %>%
+  dplyr::select(SampleID, Day, Timepoint, Individual) %>%
   distinct()
 
-# Annotate human samples
-annotated_human_samples <- human_samples_for_matching_individuals %>%
-  rowwise() %>%
-  mutate(Status = case_when(
-    Haplotype %in% mosquito_day0_haplotypes$Haplotype[mosquito_day0_haplotypes$Individual == Individual] ~ "matching",
-    TRUE ~ "human_only"
-  )) %>%
-  ungroup() 
+# Replicate Day 0 mosquito samples for each Day present in the human samples
+expanded_mosquito_samples <- mosquito_day0 %>%
+  # Perform a full join to replicate mosquito data for each human timepoint
+  full_join(human_timepoints_individuals, by = "Individual") %>%
+  mutate(species = "mosquito",
+         SampleID = SampleID.x,
+         Day = Day.y) %>% 
+  # Retain necessary columns and arrange for clarity
+  dplyr::select(SampleID, Haplotype, Reads, MOI, TotalReads, Percentage, species, Day, Individual) %>%
+  arrange(SampleID, Individual, Day)
 
-c<-ggplot(annotated_human_samples[annotated_human_samples$Day%in% c("0","2","7","14","21","28","35"),], aes(x=as.factor(Day),fill=factor(Status))) + 
-  geom_bar(position="fill", stat="count")+
-  theme_classic()+
-  xlab("Days after treatment initiation")+
-  ylab("Percentage of reads")+
-  ggtitle("trap")+
-  theme(axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10))+
-  scale_fill_manual(values=pal1)
+trap_plotme <- bind_rows(trap_haplotypes_molten_filter, expanded_mosquito_samples) %>%
+  arrange(SampleID, Individual, Day) %>%
+  filter(!is.na(SampleID)) %>%
+  process_data3()
 
+#Combined
+csp_data_prepared <- csp_plotme %>%
+  filter(Day %in% c("0", "2", "7", "14")) %>%
+  group_by(Day, Comparison) %>%
+  dplyr::summarise(Count = n(), .groups = "drop") %>%
+  mutate(Source = "csp")
 
-# 11 instances of mosquito-only clones in day 0 mosquitoes (that were not found at any human timepoint)
-mosquito_human_comparison <- mosquito_day0_haplotypes %>%
-  left_join(
-    annotated_human_samples %>% 
-      select(Individual, Haplotype, Status, Day) %>%
-      distinct(Individual, Haplotype, .keep_all = TRUE) %>%
-      mutate(human_present = TRUE),
-    by = c("Individual", "Haplotype")
-  ) %>%
-  mutate(
-    Day = as.numeric(as.character(Day)),  # Convert Day to numeric
-    Status = if_else(is.na(human_present), "mosquito_only", "matching"),
-    Day = if_else(Status == "mosquito_only", 0, Day)  # Now Day is numeric, so this works
+trap_data_prepared <- trap_plotme %>%
+  filter(Day %in% c("0", "2", "7", "14")) %>%
+  group_by(Day, Comparison) %>%
+  dplyr::summarise(Count = n(), .groups = "drop") %>%
+  mutate(Source = "trap") 
+
+combined_data <- bind_rows(csp_data_prepared, trap_data_prepared) %>%
+  group_by(Day, Comparison) %>%
+  dplyr::summarise(AvgCount = mean(Count), .groups = "drop")
+
+ggplot(combined_data, aes(x = as.factor(Day), y = AvgCount, fill = factor(Comparison))) +
+  geom_bar(position="fill", stat="identity") +
+  theme_classic() +
+  xlab("Days after treatment initiation") +
+  ylab("Haplotype Percentage (%)")+
+  scale_fill_manual(values = pal1) +
+  theme(legend.position = "right",
+        axis.text.x = element_text(size = 12), 
+        axis.text.y = element_text(size = 12),
+        axis.title.x = element_text(size = 12),
+        axis.title.y = element_text(size = 12), 
+        panel.border = element_rect(colour = "black", fill=NA, linewidth = 2), # Add border
+        plot.margin = margin(5.5, 5.5, 5.5, 5.5) # Optional: Adjust plot margin
   )
-
-d<-ggplot(mosquito_human_comparison[mosquito_human_comparison$Day%in% c("0","2","7","14","21","28","35"),], aes(x=as.factor(Day),fill=factor(Status))) + 
-  geom_bar(position="fill", stat="count")+
-  theme_classic()+
-  xlab("Days after treatment initiation")+
-  ylab("Haplotype percentage compared to Day 0 mosquito")+
-  ggtitle("trap")+
-  theme(legend.position="none",
-        axis.text.x = element_text(size = 10), 
-        axis.text.y = element_text(size = 10))+
-  scale_fill_manual(values=pal1)
+ggsave("Fig2E_Matching_Haplotypes_Percentages_Day0_bothMarkers.pdf",width=7, height=5)
 
 
+######## Figure 3A - Overall frequency of SNPs ########
+
+# Create a complete list of combinations of sample_id and protein_change
+complete_combinations <- expand.grid(sample_id = unique(combined_variants$sample_id), protein_change = unique(combined_variants$protein_change))
+
+# Merge with original data
+merged_data <- left_join(complete_combinations, combined_variants, by = c("sample_id", "protein_change"))
+
+# remove missing positions
+merged_data2 <- merged_data %>%
+  anti_join(combined_missing_positions, by = c("sample_id", "protein_change"))
+
+# replace NA in freq with zero
+merged_data2$freq[is.na(merged_data2$freq)] <- 0
+
+gene_protein_mapping <- merged_data2 %>%
+  dplyr::select(protein_change, gene) %>%
+  distinct() %>%
+  na.omit()
+
+merged_data2 <- merged_data2 %>%
+  left_join(gene_protein_mapping, by = "protein_change", suffix = c("", "_ref"))
+
+merged_data2 <- merged_data2 %>%
+  mutate(gene = ifelse(is.na(gene), gene_ref, gene)) %>%
+  dplyr::select(-gene_ref)
+
+sampleid_species_mapping <- merged_data2 %>%
+  dplyr::select(sample_id, species) %>%
+  distinct() %>%
+  na.omit()
+
+merged_data2 <- merged_data2 %>%
+  left_join(sampleid_species_mapping, by = "sample_id", suffix = c("", "_ref"))
+
+merged_data2 <- merged_data2 %>%
+  mutate(species = ifelse(is.na(species), species_ref, species)) %>%
+  dplyr::select(-species_ref)
+
+merged_data2 <- merged_data2 %>%
+  filter(!protein_change %in% c("p.Gly102Gly","p.Ser436Phe","p.SerAla436AlaGly","p.Phe180Phe","p.Asp575Tyr","p.Ser436Tyr","p.Arg571Met","p.Val494Phe")) %>%
+  mutate(protein_change = factor(recode(protein_change,
+                                        "p.Lys76Thr" = "Lys76Thr",
+                                        "p.Tyr184Phe" = "Tyr184Phe",
+                                        "p.Asn86Tyr" = "Asn86Tyr",
+                                        "p.Asn51Ile" = "Asn51Ile",
+                                        "p.Cys59Arg" = "Cys59Arg",
+                                        "p.Ser108Asn" = "Ser108Asn",
+                                        "p.Ile431Val" = "Ile431Val",
+                                        "p.Ser436Ala" = "Ser436Ala",
+                                        "p.Ala437Gly" = "Ala437Gly",
+                                        "p.Lys540Glu" = "Lys540Glu",
+                                        "p.Ala581Gly" = "Ala581Gly",
+                                        "p.Ala613Ser" = "Ala613Ser"),
+                                 levels = c("Lys76Thr", "Asn86Tyr","Tyr184Phe", "Asn51Ile",
+                                            "Cys59Arg", "Ser108Asn", "Ile431Val", "Ser436Ala", "Ser436Phe",
+                                            "Ala437Gly", "Lys540Glu", "Ala581Gly", "Ala613Ser")))
 
 
-combined_plot<- b + d + a + c + plot_layout(ncol=2, widths=c(1.1, 1))
-ggsave("Mosq0_Matching_Haplotypes_Percentages.pdf", combined_plot, width=14, height=6)
+summary_data <- merged_data2 %>%
+  group_by(protein_change,species) %>%
+  dplyr::mutate(count = n()) %>%
+  ungroup()%>%
+  group_by(protein_change,gene,species,count) %>%
+  dplyr::summarise(
+    mean_freq = mean(freq, na.rm = TRUE),
+    se = sd(freq, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )%>%
+  dplyr::mutate(gene= factor(gene,levels=c("CRT","MDR1","DHFR-TS","PPPK-DHPS","K13")))
 
 
 
+ggplot(summary_data, aes(x = as.factor(protein_change), y = mean_freq,pattern = species,color =gene)) +
+  geom_bar_pattern(aes(pattern_color=gene), fill= "white",position = "dodge", stat = "identity", pattern_angle = 45, pattern_density = 0.1, pattern_spacing = 0.025, pattern_key_scale_factor = 0.6) +
+  geom_errorbar(aes(ymin = mean_freq - se, ymax = mean_freq + se,color = gene), 
+                width = 0.2, position = position_dodge(0.9)) +
+  #geom_text(aes(label = paste(count)), position = position_dodge(width = 0.9), vjust = -0.5, size = 3) +
+  labs(x = "Protein change", y = "Overall frequency in entire sample set", fill = "Gene") +
+  scale_pattern_manual(values = c("none", "stripe"),labels=c("Human", "Mosquito")) +
+  scale_color_manual(values = pal5) +
+  scale_pattern_fill_manual(values = pal5) +
+  scale_pattern_color_manual(values = pal5)+
+  theme_light()+
+  scale_y_continuous(breaks=c(0,0.2,0.4,0.6,0.8,1),limits=c(0,1))+
+  theme(legend.position = "none",
+        axis.text.x=element_text(size=10),
+        axis.text.y=element_text(size=14))
+ggsave("Figure 3A_Overall_frequencies_bar.pdf",width=20, height=7)
 
 
+# Fisher exact
+fisher_test_func <- function(species, freq) {
+  fisher.test(table(species, freq > 0), alternative = "two.sided")$p.value
+}
+
+# Perform Fisher exact test for each protein change
+fisher_results <- merged_data2 %>%
+  group_by(protein_change) %>%
+  dplyr::summarise(fisher_p_value = fisher_test_func(species, freq), .groups = 'drop') %>%
+  ungroup()
+
+# Print or inspect the results
+print(fisher_results)
+
+
+
+######## Figure 3B - Pairwise comparison of SNPs ########
+
+human_uniqueid<-unique(merged_data2$uniqueid[merged_data2$species=="human"])
+mosq_uniqueid<-unique(merged_data2$uniqueid[merged_data2$species=="mosquito"])
+Variants_Hum_matching<-merged_data2[merged_data2$species=="human" & merged_data2$uniqueid %in% mosq_uniqueid,]
+Variants_Mosq_matching<-merged_data2[merged_data2$species=="mosquito" & merged_data2$uniqueid %in% human_uniqueid,]
+Variants_Hum_matching$species<-"human"
+Variants_Mosq_matching$species<-"mosquito"
+
+
+hum_df <- Variants_Hum_matching
+mosq_df <- Variants_Mosq_matching
+
+
+# Initialize an empty dataframe to store the results
+final_hum_df <- data.frame()
+
+# Iterate over each unique mosqid
+for (mosqid in unique_mosqids) {
+  # Find the uniqueids corresponding to the current mosqid
+  corresponding_uniqueids <- mosq_df$uniqueid[mosq_df$mosqid == mosqid]
+  
+  # Find the rows in hum_df that match these uniqueids
+  matched_rows <- hum_df[hum_df$uniqueid %in% corresponding_uniqueids, ]
+  
+  # If there are matching rows, add the mosqid to these rows
+  if (nrow(matched_rows) > 0) {
+    matched_rows$mosqid <- mosqid  # Add the mosqid as a new column
+    
+    # Append the matched rows to the final dataframe
+    final_hum_df <- rbind(final_hum_df, matched_rows)
+  }
+}
+
+
+# Perform left joins to combine 'human' and 'mosquito' data on uniqueid and genome_pos
+merged_df <- merge(Variants_Mosq_matching, final_hum_df, by = c('mosqid', 'uniqueid','genome_pos','protein_change','gene'), suffixes = c('_mosquito', '_human'), all = TRUE)
+
+# Replace NA values with 0 in freq columns after merge
+merged_df[is.na(merged_df)] <- 0
+
+# Calculate the frequency differences
+merged_df$freq_diff <- as.numeric(merged_df$freq_human - merged_df$freq_mosquito)
+
+# Select necessary columns for the output dataframe
+output_df <- merged_df %>%
+  filter(!protein_change %in% c("p.Gly102Gly","p.Ser436Phe","p.SerAla436AlaGly","p.Phe180Phe","p.Asp575Tyr","p.Ser436Tyr","p.Arg571Met","p.Val494Phe")) %>%
+  mutate(protein_change = factor(recode(protein_change,
+                                        "p.Lys76Thr" = "Lys76Thr",
+                                        "p.Tyr184Phe" = "Tyr184Phe",
+                                        "p.Asn86Tyr" = "Asn86Tyr",
+                                        "p.Asn51Ile" = "Asn51Ile",
+                                        "p.Cys59Arg" = "Cys59Arg",
+                                        "p.Ser108Asn" = "Ser108Asn",
+                                        "p.Ile431Val" = "Ile431Val",
+                                        "p.Ser436Ala" = "Ser436Ala",
+                                        "p.Ala437Gly" = "Ala437Gly",
+                                        "p.Lys540Glu" = "Lys540Glu",
+                                        "p.Ala581Gly" = "Ala581Gly",
+                                        "p.Ala613Ser" = "Ala613Ser"),
+                                 levels = c("Lys76Thr", "Asn86Tyr","Tyr184Phe" ,"Asn51Ile",
+                                            "Cys59Arg", "Ser108Asn", "Ile431Val", "Ser436Ala", "Ser436Phe",
+                                            "Ala437Gly", "Lys540Glu", "Ala581Gly", "Ala613Ser"))) %>%
+  dplyr::select(uniqueid, genome_pos, freq_diff, protein_change, gene, mosqid)
+
+# Calculate mean and standard error for each protein_change
+protein_summary <- output_df %>%
+  filter(freq_diff != 0) %>%
+  group_by(protein_change, gene) %>%
+  dplyr::summarise(
+    mean_freq_diff = mean(freq_diff, na.rm = TRUE),
+    se = sd(freq_diff, na.rm = TRUE) / sqrt(n()),
+    count = n()
+  ) %>%
+  mutate(gene = factor(gene, levels = c("CRT", "MDR1", "DHFR-TS", "PPPK-DHPS")))
+
+
+# Create the bar plot with error bars
+ggplot(protein_summary, aes(x = as.factor(protein_change), y = mean_freq_diff,fill=gene, color=gene)) +
+  geom_bar(stat = "identity", position = position_dodge(),alpha=0.5) +
+  geom_errorbar(aes(ymin = mean_freq_diff - se, ymax = mean_freq_diff + se), width = .2, position = position_dodge(.9)) +
+  geom_text(aes(label = count, 
+                y = ifelse(mean_freq_diff > 0, mean_freq_diff + se + 0.05, mean_freq_diff - se - 0.05)),
+            vjust = 0, position = position_dodge(0.9)) +
+  scale_color_manual(values = pal4) +
+  scale_fill_manual(values=pal4)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "\n Protein Change", y = "Mean Freq Diff")+
+  theme_light()+
+  theme(legend.position = "none",
+        axis.text.x=element_text(size=18),
+        axis.title.x=element_text(size=18),
+        axis.text.y=element_text(size=14))
+ggsave("Pairwise_comparison.pdf",width=20, height=7)
 
 
 
@@ -672,7 +983,7 @@ ggsave("FigureS1_Labstrain_ratios_horizontal.pdf",height=4,width=8)
 trap_raw %>%
   filter(grepl("^trap-", Haplotype)) %>%
   group_by(SampleID) %>%
-  summarise(Count = n(), .groups = 'drop') %>%
+  dplyr::summarise(Count = n(), .groups = 'drop') %>%
   separate(SampleID, into = c("IndividualID", "Rep"), sep = "_Rep") %>%
   mutate(Rep = paste0("Rep", Rep)) %>%
   pivot_wider(names_from = Rep, values_from = Count, values_fill = list(Count = 0)) %>%
@@ -681,7 +992,7 @@ trap_raw %>%
     csp_raw %>%
       filter(grepl("^csp-", Haplotype)) %>%
       group_by(SampleID) %>%
-      summarise(Count = n(), .groups = 'drop') %>%
+      dplyr::summarise(Count = n(), .groups = 'drop') %>%
       separate(SampleID, into = c("IndividualID", "Rep"), sep = "_Rep") %>%
       mutate(Rep = paste0("Rep", Rep)) %>%
       pivot_wider(names_from = Rep, values_from = Count, values_fill = list(Count = 0)) %>%
@@ -893,7 +1204,7 @@ a <- csp_trap_finalhaplotypes %>%
   filter(Species == "human", Day %in% c("0", "2", "7", "14", "21", "28")) %>%
   mutate(Day = as.factor(Day)) %>%
   group_by(Day) %>%
-  summarise(
+  dplyr::summarise(
     Median_MOI = median(MOI_Combined, na.rm = TRUE),
     IQR_Lower = quantile(MOI_Combined, probs = 0.25, na.rm = TRUE),
     IQR_Upper = quantile(MOI_Combined, probs = 0.75, na.rm = TRUE),
@@ -914,7 +1225,7 @@ b<-csp_trap_finalhaplotypes %>%
   filter(Species == "mosquito", Day %in% c("0", "2", "7", "14", "21", "28")) %>%
   mutate(Day = as.factor(Day)) %>%
   group_by(Day) %>%
-  summarise(
+  dplyr::summarise(
     Median_MOI = median(MOI_Combined, na.rm = TRUE),
     IQR_Lower = quantile(MOI_Combined, probs = 0.25, na.rm = TRUE),
     IQR_Upper = quantile(MOI_Combined, probs = 0.75, na.rm = TRUE),
@@ -1029,7 +1340,7 @@ ggsave("FigureS7.pdf", FigureS7, width=6, height=9)
 ######## Figure S8 - Haplotype count in human and mosquito hosts ########
 csp_grouped_df <- csp_matching_haplotypes_molten %>%
   group_by(Haplotype, Comparison) %>%
-  summarise(Count = n()) %>%
+  dplyr::summarise(Count = n()) %>%
   ungroup()
 
 # Extract the number from "csp-" to order the haplotypes
@@ -1039,7 +1350,7 @@ csp_grouped_df <- csp_grouped_df %>%
 
 trap_grouped_df <- trap_matching_haplotypes_molten %>%
   group_by(Haplotype, Comparison) %>%
-  summarise(Count = n()) %>%
+  dplyr::summarise(Count = n()) %>%
   ungroup()
 
 # Extract the number from "csp-" to order the haplotypes
@@ -1080,6 +1391,123 @@ ggsave("Haplotypes_transmission.pdf", combined_plot, width=5, height=7)
 
 
 
+
+
+
+
+######## Figure S9 - Odds of transmission for each haplotype ########
+#Pfcsp
+Clin_csp <- csp_haplotypes_molten %>%
+  left_join(dplyr::select(clinicaldata, SampleID, totalgct_ul, ring_ul_all), by = "SampleID")
+
+# Normalize read percentages in human data
+human_data_csp <- Clin_csp %>% 
+  filter(species != 'mosquito') %>%
+  mutate(Normalized_csp_Perc = as.numeric(Percentage) / as.numeric(totalgct_ul))
+
+# Prepare mosquito data
+mosquito_data_csp <- Clin_csp %>% 
+  filter(species == 'mosquito')
+
+# Merge human and mosquito data
+merged_data_csp <- merge(human_data_csp, mosquito_data_csp, by = c("Timepoint", "Haplotype"), all = TRUE) %>%
+  mutate(Normalized_csp_Perc = ifelse(is.na(Normalized_csp_Perc), 0, Normalized_csp_Perc),
+         Percentage.y = ifelse(is.na(Percentage.y), 0, Percentage.y),
+         Higher_in_Mosquito = Percentage.y > Normalized_csp_Perc)
+
+# Calculate the odds of transmission for each haplotype
+haplotype_odds <- merged_data_csp %>%
+  group_by(Haplotype) %>%
+  summarize(Odds_of_Transmission = mean(Higher_in_Mosquito, na.rm = TRUE), .groups = 'drop') %>%
+  mutate(Haplotype_Num = as.numeric(gsub("[^0-9]", "", Haplotype))) %>%
+  arrange(Haplotype_Num) %>%
+  dplyr::select(-Haplotype_Num) %>%
+  mutate(Haplotype = factor(Haplotype, levels = unique(Haplotype)))
+
+y_axis_data <- data.frame(Y = seq(0, 1, by = 0.1), Odds_of_Transmission = 0)
+
+# Create the circular plot with the y-axis circles
+a<-ggplot(haplotype_odds, aes(x = Haplotype, y = Odds_of_Transmission, fill = Odds_of_Transmission)) +
+  #geom_text(aes(label = Haplotype), 
+  #position = position_stack(vjust = 1), 
+  #color = "black", 
+  #size = 3) +
+  geom_hline(yintercept = seq(0, 1, by = 0.2), color = "grey", linetype = "dashed")+
+  geom_bar(stat = "identity", width = 1) +
+  scale_fill_gradient2(low = "white", high = "lightblue4", limits = c(0, 1)) +
+  coord_polar(start = 0) +
+  theme_minimal() +
+  labs(
+    title = "Circular Visualization of Transmission Odds for Each Haplotype normalized for totalGCT",
+    x = NULL,
+    y = "Odds of Transmission"
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+
+
+
+#Pftrap
+
+Clin_trap <- trap_haplotypes_molten %>%
+  left_join(dplyr::select(clinicaldata, SampleID, totalgct_ul, ring_ul_all), by = "SampleID")
+
+# Normalize read percentages in human data
+human_data_trap <- Clin_trap %>% 
+  filter(species != 'mosquito') %>%
+  mutate(Normalized_trap_Perc = as.numeric(Percentage) / as.numeric(totalgct_ul))
+
+# Prepare mosquito data
+mosquito_data_trap <- Clin_trap %>% 
+  filter(species == 'mosquito')
+
+# Merge human and mosquito data
+merged_data_trap <- merge(human_data_trap, mosquito_data_trap, by = c("Timepoint", "Haplotype"), all = TRUE) %>%
+  mutate(Normalized_trap_Perc = ifelse(is.na(Normalized_trap_Perc), 0, Normalized_trap_Perc),
+         Percentage.y = ifelse(is.na(Percentage.y), 0, Percentage.y),
+         Higher_in_Mosquito = Percentage.y > Normalized_trap_Perc)
+
+# Calculate the odds of transmission for each haplotype
+haplotype_odds <- merged_data_trap %>%
+  group_by(Haplotype) %>%
+  dplyr::summarize(Odds_of_Transmission = mean(Higher_in_Mosquito, na.rm = TRUE), .groups = 'drop') %>%
+  mutate(Haplotype_Num = as.numeric(gsub("[^0-9]", "", Haplotype))) %>%
+  arrange(Haplotype_Num) %>%
+  dplyr::select(-Haplotype_Num) %>%
+  mutate(Haplotype = factor(Haplotype, levels = unique(Haplotype)))
+
+y_axis_data <- data.frame(Y = seq(0, 1, by = 0.1), Odds_of_Transmission = 0)
+
+# Create the circular plot with the y-axis circles
+b<-ggplot(haplotype_odds, aes(x = Haplotype, y = Odds_of_Transmission, fill = Odds_of_Transmission)) +
+  geom_hline(yintercept = seq(0, 1, by = 0.2), color = "grey", linetype = "dashed")+
+  geom_bar(stat = "identity", width = 1) +
+  #geom_text(aes(label = Haplotype), 
+  #position = position_stack(vjust = 1), 
+  #color = "black", 
+  #size = 3) +
+  scale_fill_gradient2(low = "white", high = "lightblue4", limits = c(0, 1)) +
+  coord_polar(start = 0) +
+  theme_minimal() +
+  labs(
+    title = "Circular Visualization of Transmission Odds for Each Haplotype normalized for totalGCT",
+    x = NULL,
+    y = "Odds of Transmission"
+  ) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "none"
+  )
+
+
+FigureS9<-a+b
+ggsave("FigureS9_OddsOfTransmisson.pdf", width=15, height=7)
 
 
 
@@ -1180,134 +1608,132 @@ ggsave("Clonality_human_vs_mosq.pdf", width=6, height=5)
 
 
 
-######## Calculate the odds of transmission for each haplotype ########
-Clin_csp <- csp_haplotypes_molten %>%
-  left_join(select(clinicaldata, SampleID, totalgct_ul, ring_ul_all), by = "SampleID")
 
-# Normalize read percentages in human data
-human_data_csp <- Clin_csp %>% 
-  filter(species != 'mosquito') %>%
-  mutate(Normalized_csp_Perc = as.numeric(Percentage) / as.numeric(totalgct_ul))
+######## Table S3. Coverage across markers ######## 
+trap_raw %>%
+  mutate(SampleID = gsub("(.*)_.*", "\\1", SampleID),
+         Reads = as.numeric(Reads)) %>%
+  filter(str_starts(Haplotype, "trap")) %>%
+  group_by(SampleID) %>%
+  dplyr::summarise(
+    TotalReads = sum(Reads, na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::summarise(
+    MedianReads = median(TotalReads, na.rm = TRUE),
+    Q1Reads = quantile(TotalReads, probs = 0.25, na.rm = TRUE),
+    Q3Reads = quantile(TotalReads, probs = 0.75, na.rm = TRUE)
+  )
+  
+csp_raw %>%
+  mutate(SampleID = gsub("(.*)_.*", "\\1", SampleID),
+         Reads = as.numeric(Reads)) %>%
+  filter(str_starts(Haplotype, "csp")) %>%
+  group_by(SampleID) %>%
+  dplyr::summarise(
+    TotalReads = sum(Reads, na.rm = TRUE)) %>%
+  ungroup() %>%
+  dplyr::summarise(
+    MedianReads = median(TotalReads, na.rm = TRUE),
+    Q1Reads = quantile(TotalReads, probs = 0.25, na.rm = TRUE),
+    Q3Reads = quantile(TotalReads, probs = 0.75, na.rm = TRUE)
+  )
 
-# Prepare mosquito data
-mosquito_data_csp <- Clin_csp %>% 
-  filter(species == 'mosquito')
-
-# Merge human and mosquito data
-merged_data_csp <- merge(human_data_csp, mosquito_data_csp, by = c("Timepoint", "Haplotype"), all = TRUE)
-
-merged_data_csp$Normalized_csp_Perc <- ifelse(is.na(merged_data_csp$Normalized_csp_Perc), 0, merged_data_csp$Normalized_csp_Perc)
-merged_data_csp$Percentage.y <- ifelse(is.na(merged_data_csp$Percentage.y), 0, merged_data_csp$Percentage.y)
-
-
-# Add a column to indicate if the read percentage is higher in mosquito sample
-merged_data_csp$Higher_in_Mosquito <- merged_data_csp$Percentage.y > merged_data_csp$Normalized_csp_Perc
-
-# Calculate the odds of transmission for each haplotype
-haplotype_odds <- merged_data_csp %>%
-  group_by(Haplotype) %>%
-  summarize(Odds_of_Transmission = mean(Higher_in_Mosquito, na.rm = TRUE))
-
-haplotype_odds$Haplotype_Num <- as.numeric(sub("csp-", "", haplotype_odds$Haplotype))
-
-# Ordering the dataframe by this numeric part
-haplotype_odds <- haplotype_odds[order(haplotype_odds$Haplotype_Num), ]
-
-# Removing the auxiliary numeric column if not needed further
-haplotype_odds$Haplotype_Num <- NULL
-
-y_axis_data <- data.frame(Y = seq(0, 1, by = 0.1), Odds_of_Transmission = 0)
-
-# Create the circular plot with the y-axis circles
-a<-ggplot(haplotype_odds, aes(x = factor(Haplotype), y = Odds_of_Transmission, fill = Odds_of_Transmission)) +
-  geom_bar(stat = "identity", width = 1) +
-  geom_text(aes(label = ifelse(Odds_of_Transmission > 0.1, Haplotype, ""), y = Odds_of_Transmission + 0.02), 
-            position = position_stack(vjust = 1), 
-            color = "black", 
-            size = 3) +
-  scale_fill_gradient2(low = "white", high = "lightblue4", limits = c(0, 1)) +
-  coord_polar(start = 0) +
-  theme_minimal() +
-  labs(
-    title = "Circular Visualization of Transmission Odds for Each Haplotype normalized for totalGCT",
-    x = NULL,
-    y = "Odds of Transmission"
-  ) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks = element_blank(),
-    panel.grid = element_blank(),
-    legend.position = "none"
+combined_coverage %>%
+  mutate(Region = factor(Region,levels=c("crt","mdr1","dhfr","dhps","k13"))) %>%
+  group_by(Region) %>%
+  dplyr::summarise(
+    Median = median(Median_Depth, na.rm = TRUE),
+    IQR_Lower = quantile(Median_Depth, probs = 0.25, na.rm = TRUE),
+    IQR_Upper = quantile(Median_Depth, probs = 0.75, na.rm = TRUE)
   )
 
 
+######## Table S4. Non-synonymous single nucleotide polymorphisms in genes associated with drug resistance  ######## 
+# Create a complete list of combinations of sample_id and protein_change
+complete_combinations <- expand.grid(sample_id = unique(combined_variants$sample_id), protein_change = unique(combined_variants$protein_change))
 
-#########trap
+# Merge with original data
+merged_data <- left_join(complete_combinations, combined_variants, by = c("sample_id", "protein_change"))
 
-Clin_trap <- trap_haplotypes_molten %>%
-  left_join(select(clinicaldata, SampleID, totalgct_ul, ring_ul_all), by = "SampleID")
+# remove missing positions
+merged_data2 <- merged_data %>%
+  anti_join(combined_missing_positions, by = c("sample_id", "protein_change"))
 
-#write.csv(Clin_csp_trap,"Clin_csp_trap.csv", row.names = FALSE)
+# replace NA in freq with zero
+merged_data2$freq[is.na(merged_data2$freq)] <- 0
 
-# Normalize read percentages in human data
-human_data_trap <- Clin_trap %>% 
-  filter(species != 'mosquito') %>%
-  mutate(Normalized_trap_Perc = as.numeric(Percentage) / as.numeric(totalgct_ul))
+gene_protein_mapping <- merged_data2 %>%
+  dplyr::select(protein_change, gene) %>%
+  distinct() %>%
+  na.omit()
 
-# Prepare mosquito data
-mosquito_data_trap <- Clin_trap %>% 
-  filter(species == 'mosquito')
+merged_data2 <- merged_data2 %>%
+  left_join(gene_protein_mapping, by = "protein_change", suffix = c("", "_ref"))
 
-# Merge human and mosquito data
-merged_data_trap <- merge(human_data_trap, mosquito_data_trap, by = c("Timepoint", "Haplotype"), all = TRUE)
+merged_data2 <- merged_data2 %>%
+  mutate(gene = ifelse(is.na(gene), gene_ref, gene)) %>%
+  dplyr::select(-gene_ref)
 
-merged_data_trap$Normalized_trap_Perc <- ifelse(is.na(merged_data_trap$Normalized_trap_Perc), 0, merged_data_trap$Normalized_trap_Perc)
-merged_data_trap$Percentage.y <- ifelse(is.na(merged_data_trap$Percentage.y), 0, merged_data_trap$Percentage.y)
+sampleid_species_mapping <- merged_data2 %>%
+  dplyr::select(sample_id, species) %>%
+  distinct() %>%
+  na.omit()
 
+merged_data2 <- merged_data2 %>%
+  left_join(sampleid_species_mapping, by = "sample_id", suffix = c("", "_ref"))
 
-# Add a column to indicate if the read percentage is higher in mosquito sample
-merged_data_trap$Higher_in_Mosquito <- merged_data_trap$Percentage.y > merged_data_trap$Normalized_trap_Perc
+merged_data2 <- merged_data2 %>%
+  mutate(species = ifelse(is.na(species), species_ref, species)) %>%
+  dplyr::select(-species_ref)
 
-# Calculate the odds of transmission for each haplotype
-haplotype_odds <- merged_data_trap %>%
-  group_by(Haplotype) %>%
-  summarize(Odds_of_Transmission = mean(Higher_in_Mosquito, na.rm = TRUE))
-
-haplotype_odds$Haplotype_Num <- as.numeric(sub("trap-", "", haplotype_odds$Haplotype))
-
-# Ordering the dataframe by this numeric part
-haplotype_odds <- haplotype_odds[order(haplotype_odds$Haplotype_Num), ]
-
-# Removing the auxiliary numeric column if not needed further
-haplotype_odds$Haplotype_Num <- NULL
-
-b<-ggplot(haplotype_odds, aes(x = factor(Haplotype), y = Odds_of_Transmission, fill = Odds_of_Transmission)) +
-  geom_bar(stat = "identity", width = 1) +
-  geom_text(aes(label = Haplotype), 
-            position = position_stack(vjust = 1), 
-            color = "black", 
-            size = 3) +
-  scale_fill_gradient2(low = "white",high = "lightblue4",limits=c(0,1)) +
-  coord_polar(start = 0) +
-  theme_minimal() +
-  labs(
-    title = "Circular Visualization of Transmission Odds for Each Haplotype normalized for totalGCT",
-    x = NULL,
-    y = "Odds of Transmission"
-  ) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks = element_blank(),
-    panel.grid = element_blank(),
-    title=element_blank()
-  )
-
-combinedplot<-a+b
-ggsave("OddsOfTransmisson.pdf", width=15, height=7)
-
+merged_data2 <- merged_data2 %>%
+  filter(!protein_change %in% c("p.Phe180Phe","p.Gly102Gly")) %>%
+  mutate(protein_change = factor(recode(protein_change,
+                                        "p.Lys76Thr" = "Lys76Thr",
+                                        "p.Tyr184Phe" = "Tyr184Phe",
+                                        "p.Asn86Tyr" = "Asn86Tyr",
+                                        "p.Asn51Ile" = "Asn51Ile",
+                                        "p.Cys59Arg" = "Cys59Arg",
+                                        "p.Ser108Asn" = "Ser108Asn",
+                                        "p.Ile431Val" = "Ile431Val",
+                                        "p.Ser436Ala" = "Ser436Ala",
+                                        "p.Ser436Phe" = "Ser436Phe",
+                                        "p.SerAla436AlaGly" = "SerAla436AlaGly",
+                                        "p.Ala437Gly" = "Ala437Gly",
+                                        "p.Lys540Glu" = "Lys540Glu",
+                                        "p.Ala581Gly" = "Ala581Gly",
+                                        "p.Ala613Ser" = "Ala613Ser",
+                                        "p.Asp575Tyr" = "Asp575Tyr",
+                                        "p.Ser436Tyr" = "Ser436Tyr",
+                                        "p.Arg571Met" = "Arg571Met",
+                                        "p.Val494Phe" = "Val494Phe"),
+                                 levels = c("Lys76Thr", "Asn86Tyr","Tyr184Phe" ,"Asn51Ile",
+                                            "Cys59Arg", "Ser108Asn", "Ile431Val", "Ser436Ala", "Ser436Phe", "SerAla436AlaGly", "Ser436Tyr",
+                                            "Ala437Gly", "Lys540Glu", "Arg571Met", "Asp575Tyr","Ala581Gly", "Ala613Ser","Val494Phe")))
 
 
+summary_data <- merged_data2 %>%
+  group_by(protein_change,species) %>%
+  dplyr::mutate(count = n()) %>%
+  ungroup()%>%
+  group_by(protein_change,gene,species,count) %>%
+  dplyr::summarise(
+    mean_freq = mean(freq, na.rm = TRUE),
+    se = sd(freq, na.rm = TRUE) / sqrt(n()),
+    .groups = 'drop'
+  )%>%
+  dplyr::mutate(gene= factor(gene,levels=c("CRT","MDR1","DHFR-TS","PPPK-DHPS","K13")))
 
+TableS4 <- summary_data %>%
+  dplyr::select(-count) %>%
+  pivot_wider(names_from = species,
+              values_from = c(mean_freq, se),
+              names_glue = "{.value}_{species}",
+              values_fn = list(mean_freq = mean, se = mean))%>%
+  mutate(mean_freq_human = round(mean_freq_human * 100,2),
+         mean_freq_mosquito = round(mean_freq_mosquito * 100,2))
+
+write.csv(TableS4, "TableS4_MAF.csv")
 
 ######## Overview of all haplotypes ########
 Haplotypes_trap_Molten <- trap_haplotypes_molten %>%
@@ -1431,7 +1857,7 @@ table_numbers <- data.frame(
                   "Unique individuals with csp_hap",
                   "Unique individuals with trap_hap",
                   "Timepoints with csp_hap",
-                  "Timpeoints with trap_hap",
+                  "Timepoints with trap_hap",
                   "Individuals non-infectious at day 0",
                   "Mosquito samples with csp_hap",
                   "Mosquito samples with trap_hap",
@@ -1440,7 +1866,13 @@ table_numbers <- data.frame(
                   "Timepoints at which there are matching human-mosquito samples with csp_hap",
                   "Timepoints at which there are matching human-mosquito samples with trap_hap",
                   "Matching samples human-mosquito with csp_hap",
-                  "Matching samples human-mosquito with trap_hap"),
+                  "Matching samples human-mosquito with trap_hap",
+                  "Matching samples human-mosquito with csp_hap at day14",
+                  "Individuals in human drug resistance data",
+                  "Individuals in mosquito drug resistance data",
+                  "Individuals for which there are matching mosquitoes in drug resistance data",
+                  "Mosquitoes in mosquito drug resistance data",
+                  "Instances of matching individuals and mosquitoes"),
   Count = c(length(unique(csp_processed$SampleID)), length(unique(trap_processed$SampleID)),
             length(unique(csp_trap_finalhaplotypes_human$Individual[!is.na(csp_trap_finalhaplotypes_human$csp_hap)])), length(unique(csp_trap_finalhaplotypes_human$Individual[!is.na(csp_trap_finalhaplotypes_human$trap_hap)])),
             length(na.omit(csp_trap_finalhaplotypes_human$csp_MOI)), length(na.omit(csp_trap_finalhaplotypes_human$trap_MOI)),
@@ -1450,13 +1882,18 @@ table_numbers <- data.frame(
             length(unique(intersect(csp_trap_finalhaplotypes_human$Timepoint[!is.na(csp_trap_finalhaplotypes_human$csp_hap)], csp_trap_finalhaplotypes_mosq$Timepoint[!is.na(csp_trap_finalhaplotypes_mosq$csp_hap)]))),
             length(unique(intersect(csp_trap_finalhaplotypes_human$Timepoint[!is.na(csp_trap_finalhaplotypes_human$trap_hap)], csp_trap_finalhaplotypes_mosq$Timepoint[!is.na(csp_trap_finalhaplotypes_mosq$trap_hap)]))),
             nrow(csp_trap_finalhaplotypes_mosq[csp_trap_finalhaplotypes_mosq$Timepoint %in% unique(intersect(csp_trap_finalhaplotypes_human$Timepoint[!is.na(csp_trap_finalhaplotypes_human$csp_hap)], csp_trap_finalhaplotypes_mosq$Timepoint[!is.na(csp_trap_finalhaplotypes_mosq$csp_hap)])), ]),
-            nrow(csp_trap_finalhaplotypes_mosq[csp_trap_finalhaplotypes_mosq$Timepoint %in% unique(intersect(csp_trap_finalhaplotypes_human$Timepoint[!is.na(csp_trap_finalhaplotypes_human$trap_hap)], csp_trap_finalhaplotypes_mosq$Timepoint[!is.na(csp_trap_finalhaplotypes_mosq$trap_hap)])), ])
+            nrow(csp_trap_finalhaplotypes_mosq[csp_trap_finalhaplotypes_mosq$Timepoint %in% unique(intersect(csp_trap_finalhaplotypes_human$Timepoint[!is.na(csp_trap_finalhaplotypes_human$trap_hap)], csp_trap_finalhaplotypes_mosq$Timepoint[!is.na(csp_trap_finalhaplotypes_mosq$trap_hap)])), ]),
+            nrow(csp_trap_finalhaplotypes_mosq[csp_trap_finalhaplotypes_mosq$Day == 14 & csp_trap_finalhaplotypes_mosq$Timepoint %in% intersect(csp_trap_finalhaplotypes_human$Timepoint[!is.na(csp_trap_finalhaplotypes_human$trap_hap)], csp_trap_finalhaplotypes_mosq$Timepoint[!is.na(csp_trap_finalhaplotypes_mosq$trap_hap)]), ]),
+            length(unique(variants_Exp52$uniqueid)),
+            length(unique(variants_Exp51$uniqueid)),
+            length(intersect(variants_Exp51$uniqueid, variants_Exp52$uniqueid)),
+            length(unique(variants_Exp51$mosqid)),
+            length(unique(variants_Exp51$mosqid[variants_Exp51$uniqueid%in%variants_Exp52$uniqueid]))
   )
 )
 
 
 
 
-  
 
 
