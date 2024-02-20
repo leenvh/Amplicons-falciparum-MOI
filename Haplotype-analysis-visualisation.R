@@ -1,5 +1,5 @@
 ---
-title: "_Plasmodium falciparum_ transmissibility in asymptomatic gametocyte carriers in Mali "
+title: ""
 author: "Leen Vanheer"
 
 ---
