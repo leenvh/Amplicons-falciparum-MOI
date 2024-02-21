@@ -34,6 +34,7 @@ pal2<-c("lightgrey", "grey48")
 pal3<-c("monoclonal"="#9AC77B","polyclonal"='#7EC2DE')
 pal4 <- c("#8dd3c6","#fccde5", "#f98073", "#80b0d3")
 pal5 <- c("#4c9184", "#bf6b96", "#a8392d","#3373a1")
+pal6 <- c("#ebccb5","#A2A77F", "#8CBCB9", "#DB8A74", "#972D07","#C19AAF", "#D1AC00")
 
 ################################################### Functions ###################################################
 process_data <- function(data, type) {
@@ -987,7 +988,8 @@ ggsave("FigureS1_Labstrain_ratios_horizontal.pdf",height=4,width=8)
 clinicaldata_gam<-clinicaldata %>%
   mutate(studycode =as.factor(studycode),
          MIR = mosq_pos/mosq_total) %>%
-  filter(arm_num %in% c(1,3))
+  filter(arm_num %in% c(1,3),
+         !studyvisit==10)
 mod2b = gam(totalgct_ul ~  s(studyvisit)+s(studycode, bs="re"), family=nb(), data=clinicaldata_gam)
 summary(mod2b)
 plot(mod2b)
@@ -1010,18 +1012,18 @@ ndata <- mutate(ndata,
                 right_lwr = ilink(fit_link - (2 * se_link)))
 
 ggplot(data=ndata, aes(x=studyvisit, y= fit_resp))+
-  geom_jitter(data=clinicaldata_gam_clean,aes(x=studyvisit,y=totalgct_ul),alpha=0.5)+
+  geom_jitter(data=clinicaldata_gam,aes(x=studyvisit,y=totalgct_ul),alpha=0.5)+
   geom_line(col="darkgreen", linewidth=1.2)+
   geom_ribbon(aes(ymin=right_lwr, ymax=right_upr), fill="darkgreen", alpha=0.3)+
   theme_prism()+
   coord_cartesian(ylim=c(0,100))+
-  scale_x_continuous(breaks=c(0,2,7,14,28,35,42,49))+
+  scale_x_continuous(breaks=c(0,2,7,14,21,28,35,42,49))+
   ylab("Gametocyte density/µL (pcr)")+
   xlab("Duration of infection (days)")
 ggsave("Gam_GC.pdf", width = 7, height = 6)
 
 #Asexual density
-mod2a = gam(ring_ul_all ~  s(studyvisit)+s(studycode, bs="re"), family=nb(), data=clinicaldata_gam)
+mod2a = gam(ring_ul_all ~  s(studyvisit,k=9)+s(studycode, bs="re", k=9), family=nb(), data=clinicaldata_gam)
 summary(mod2a)
 plot(mod2a)
 
@@ -1043,12 +1045,12 @@ ndata <- mutate(ndata,
                 right_lwr = ilink(fit_link - (2 * se_link)))
 
 ggplot(data=ndata, aes(x=studyvisit, y= fit_resp))+
-  geom_jitter(data=clinicaldata_gam_clean,aes(x=studyvisit,y=ring_ul_all),alpha=0.5)+
+  geom_jitter(data=clinicaldata_gam,aes(x=studyvisit,y=ring_ul_all),alpha=0.5)+
   geom_line(col="darkblue", linewidth=1.2)+
   geom_ribbon(aes(ymin=right_lwr, ymax=right_upr), fill="darkblue", alpha=0.3)+
   theme_prism()+
   coord_cartesian(ylim=c(0,1200))+
-  scale_x_continuous(breaks=c(0,2,7,14,28,35,42,49))+
+  scale_x_continuous(breaks=c(0,2,7,14,21,28,35,42,49))+
   ylab("Asexual parasite density/µL")+
   xlab("Duration of infection (days)")
 ggsave("Gam_Asex.pdf", width = 7, height = 6)
@@ -1056,7 +1058,7 @@ ggsave("Gam_Asex.pdf", width = 7, height = 6)
 
 #Mosquito infection rate
 clinicaldata_gam_clean = clinicaldata_gam[!is.na(clinicaldata_gam$MIR), ]
-mod2c = gam(MIR ~  s(studyvisit, k=5)+s(studycode, bs="re", k=5), family=nb(), data=clinicaldata_gam_clean)
+mod2c = gam(MIR ~  s(studyvisit, k=8)+s(studycode, bs="re", k=8), family=nb(), data=clinicaldata_gam_clean)
 
 summary(mod2c)
 plot(mod2c)
@@ -1085,7 +1087,7 @@ ggplot(data=ndata, aes(x=studyvisit, y= fit_resp))+
   geom_ribbon(aes(ymin=right_lwr, ymax=right_upr), fill="darkorange", alpha=0.3)+
   theme_prism()+
   coord_cartesian(ylim=c(0,1))+
-  scale_x_continuous(breaks=c(0,2,7,14,28,35,42,49))+
+  scale_x_continuous(breaks=c(0,2,7,14,21,28,35,42,49))+
   ylab("Mosquito infection rate")+
   xlab("Duration of infection (days)")
 ggsave("Gam_MIR.pdf", width = 7, height = 6)
@@ -1237,14 +1239,15 @@ final_df_csp <- data.frame(RomanNumeral = roman_numbers, Haplotype = numbers_csp
 final_df_trap <- data.frame(RomanNumeral = roman_numbers, Haplotype = numbers_trap)
 
 #col=usecol(pal_unikn_pref)
-mycols <- c("#fabfbd", "#fce6cc", "#e0eed3", "#e1d8e9", "#d6edf8","#eaccd8","#fefbde")
-plot(net, size=sz, scale.ratio =2, cex=0.75, pie = regions, bg = mycols,threshold = 0, col.link="black")
+
+plot(net, size=sz, scale.ratio =2, cex=0.75, pie = regions, bg = pal6,threshold = 0, col.link="black")
 
 replot()
-legend("left", colnames(regions),col=mycols, pch=20, cex=0.7)
+legend("left", colnames(regions),col=pal6, pch=20, cex=0.7)
 
 current_plot <- recordPlot()
 pdf("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/TRAP_network.pdf",width = 12,height = 10)
+pdf("~/Google Drive/My Drive/PhD_LSHTM/Projects/AmpliconSequencing/HaplotypeNetwork/legend.pdf",width = 8,height = 4)
 replayPlot(current_plot)
 dev.off()
 
