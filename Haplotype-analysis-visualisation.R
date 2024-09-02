@@ -1,5 +1,5 @@
 ---
-title: ""
+title: "Preferential transmission of minority and drug-resistant clones in polyclonal infections in Mali"
 author: "Leen Vanheer"
 
 ---
